@@ -111,6 +111,102 @@ func (g *Grid) Dump() string {
 	return b.String()
 }
 
+// --- write primitives used by the parser (same package) ----------------------
+
+const tabWidth = 8
+
+// putCell writes c at the cursor and advances, wrapping to the next line (and
+// scrolling when needed) once the cursor moves past the right edge.
+func (g *Grid) putCell(c Cell) {
+	g.cells[g.curY*g.cols+g.curX] = c
+	g.curX++
+	if g.curX >= g.cols {
+		g.curX = 0
+		g.lineFeed()
+	}
+}
+
+// lineFeed moves the cursor down one row, scrolling up when already on the last
+// row.
+func (g *Grid) lineFeed() {
+	if g.curY < g.rows-1 {
+		g.curY++
+		return
+	}
+	g.scrollUp()
+}
+
+// scrollUp shifts every row up by one; the top row is discarded and the bottom
+// row is blanked.
+//
+// TODO(stage-2): push the discarded top row into the scrollback ring instead of
+// dropping it.
+func (g *Grid) scrollUp() {
+	copy(g.cells, g.cells[g.cols:])
+	bottom := (g.rows - 1) * g.cols
+	for i := bottom; i < len(g.cells); i++ {
+		g.cells[i] = blank
+	}
+}
+
+// tab advances the cursor to the next tab stop, clamped to the last column.
+func (g *Grid) tab() {
+	next := (g.curX/tabWidth + 1) * tabWidth
+	g.curX = min(next, g.cols-1)
+}
+
+// backspace moves the cursor one column left, stopping at column 0.
+func (g *Grid) backspace() {
+	if g.curX > 0 {
+		g.curX--
+	}
+}
+
+// eraseLine blanks part of the cursor's row: mode 0 from the cursor to the end,
+// 1 from the start to the cursor, 2 the whole line.
+func (g *Grid) eraseLine(mode int) {
+	x0, x1 := 0, g.cols-1
+	switch mode {
+	case 0:
+		x0 = g.curX
+	case 1:
+		x1 = g.curX
+	case 2:
+		// whole line
+	default:
+		return
+	}
+	base := g.curY * g.cols
+	for x := x0; x <= x1; x++ {
+		g.cells[base+x] = blank
+	}
+}
+
+// eraseDisplay blanks part of the grid: mode 0 from the cursor to the end, 1
+// from the start to the cursor, 2 the whole screen.
+func (g *Grid) eraseDisplay(mode int) {
+	switch mode {
+	case 0:
+		g.eraseLine(0)
+		g.fillRows(g.curY+1, g.rows)
+	case 1:
+		g.eraseLine(1)
+		g.fillRows(0, g.curY)
+	case 2, 3:
+		g.fill(0, blank)
+	}
+}
+
+// fillRows blanks whole rows in [y0, y1).
+func (g *Grid) fillRows(y0, y1 int) {
+	for y := y0; y < y1; y++ {
+		base := y * g.cols
+		for x := 0; x < g.cols; x++ {
+			g.cells[base+x] = blank
+		}
+	}
+}
+
 // fill sets every cell from index start onward to c.
 func (g *Grid) fill(start int, c Cell) {
 	for i := start; i < len(g.cells); i++ {

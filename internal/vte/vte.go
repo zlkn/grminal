@@ -2,13 +2,39 @@
 // PTY and updates the virtual character Grid. It knows nothing about the GPU.
 package vte
 
-// Style holds the visual attributes of a cell. It is a placeholder for now;
-// foreground/background colors and an attribute bitmask (bold/italic/underline)
-// arrive with the SGR handling at step 5/6. The zero value is the terminal
-// default style. It must stay a comparable value type so run tokenization can
-// group cells with ==.
+// ColorKind selects how a Color is interpreted.
+type ColorKind uint8
+
+const (
+	ColorDefault ColorKind = iota // terminal default (zero value)
+	ColorIndexed                  // 256-color palette index in Idx
+	ColorRGB                      // 24-bit truecolor in R,G,B
+)
+
+// Color is a foreground or background color. It is a comparable value type; the
+// zero value means the terminal default color.
+type Color struct {
+	Kind    ColorKind
+	Idx     uint8 // palette index when Kind == ColorIndexed
+	R, G, B uint8 // components when Kind == ColorRGB
+}
+
+// AttrMask is a bitmask of boolean cell attributes.
+type AttrMask uint8
+
+const (
+	AttrBold AttrMask = 1 << iota
+	AttrItalic
+	AttrUnderline
+	AttrReverse
+)
+
+// Style holds the visual attributes of a cell. It must stay a comparable value
+// type (no slices/pointers) so run tokenization can group cells with ==. The
+// zero value is the terminal default style.
 type Style struct {
-	// TODO(stage-2): FG, BG color, attrs bitmask.
+	FG, BG Color
+	Attrs  AttrMask
 }
 
 // Cell is a single terminal cell: a rune plus its style.

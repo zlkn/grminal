@@ -24,13 +24,15 @@ var bufPool = sync.Pool{
 
 // Pane is one concrete terminal instance.
 type Pane struct {
-	pty  PTY
-	grid *vte.Grid
+	pty    PTY
+	grid   *vte.Grid
+	parser *vte.Parser
 }
 
 // NewPane returns a pane wrapping pty with a fresh cols×rows grid.
 func NewPane(pty PTY, cols, rows int) *Pane {
-	return &Pane{pty: pty, grid: vte.NewGrid(cols, rows)}
+	g := vte.NewGrid(cols, rows)
+	return &Pane{pty: pty, grid: g, parser: vte.NewParser(g)}
 }
 
 // Grid returns the pane's character grid.
@@ -48,8 +50,8 @@ func (p *Pane) Run() error {
 	for {
 		n, err := p.pty.Read(buf)
 		if n > 0 {
-			// Grid.Write never errors and always consumes all input.
-			_, _ = p.grid.Write(buf[:n])
+			// Parser.Write never errors and always consumes all input.
+			_, _ = p.parser.Write(buf[:n])
 		}
 		if err != nil {
 			if errors.Is(err, io.EOF) {
