@@ -23,8 +23,13 @@ var bufPool = sync.Pool{
 }
 
 // Pane is one concrete terminal instance.
+//
+// The grid is shared between the PTY drain goroutine (which mutates it) and the
+// render loop (which reads it). All grid access is serialised by mu; readers
+// take an independent Snapshot rather than touching the live grid.
 type Pane struct {
 	pty    PTY
+	mu     sync.Mutex // guards grid mutation and snapshotting
 	grid   *vte.Grid
 	parser *vte.Parser
 }
@@ -35,13 +40,21 @@ func NewPane(pty PTY, cols, rows int) *Pane {
 	return &Pane{pty: pty, grid: g, parser: vte.NewParser(g)}
 }
 
-// Grid returns the pane's character grid.
+// Grid returns the pane's character grid. It is not safe to read concurrently
+// with Run; use Snapshot for that. Intended for single-threaded/test use.
 func (p *Pane) Grid() *vte.Grid { return p.grid }
 
+// Snapshot returns an independent copy of the grid, safe to call concurrently
+// with Run. This is the renderer's entry point into pane state.
+func (p *Pane) Snapshot() vte.Snapshot {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.grid.Snapshot()
+}
+
 // Run drains the PTY into the grid until EOF (or a read error), feeding each
-// chunk through the grid's writer. It is synchronous by design so it is
-// deterministically testable; the concurrent read goroutine is layered on at a
-// later stage.
+// chunk through the parser. Blocking PTY reads happen outside the lock; only the
+// grid mutation is serialised, so a concurrent Snapshot is never starved.
 func (p *Pane) Run() error {
 	bufp := bufPool.Get().(*[]byte)
 	defer bufPool.Put(bufp)
@@ -50,8 +63,10 @@ func (p *Pane) Run() error {
 	for {
 		n, err := p.pty.Read(buf)
 		if n > 0 {
+			p.mu.Lock()
 			// Parser.Write never errors and always consumes all input.
 			_, _ = p.parser.Write(buf[:n])
+			p.mu.Unlock()
 		}
 		if err != nil {
 			if errors.Is(err, io.EOF) {
@@ -67,7 +82,9 @@ func (p *Pane) Write(b []byte) (int, error) { return p.pty.Write(b) }
 
 // Resize resizes the grid and informs the PTY. Note the PTY takes (rows, cols).
 func (p *Pane) Resize(cols, rows int) error {
+	p.mu.Lock()
 	p.grid.Resize(cols, rows)
+	p.mu.Unlock()
 	return p.pty.Resize(uint16(rows), uint16(cols))
 }
 
