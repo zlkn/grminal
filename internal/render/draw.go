@@ -67,9 +67,9 @@ func NewRenderer(sizePx float64) (*Renderer, error) {
 		cellW:     text.Advance("M", face),
 		cellH:     m.HAscent + m.HDescent,
 		ascent:    m.HAscent,
-		defaultFG: color.RGBA{0xcc, 0xcc, 0xcc, 0xff},
-		defaultBG: color.RGBA{0x0a, 0x0a, 0x0a, 0xff},
-		cursor:    color.RGBA{0xcc, 0xcc, 0xcc, 0x99},
+		defaultFG: color.RGBA{0x42, 0x42, 0x42, 0xff}, // #424242
+		defaultBG: color.RGBA{0xf0, 0xee, 0xe6, 0xff}, // #f0eee6
+		cursor:    color.RGBA{0x20, 0xbb, 0xfc, 0x99}, // #20bbfc, translucent block
 	}, nil
 }
 
