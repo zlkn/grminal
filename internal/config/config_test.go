@@ -1,0 +1,153 @@
+package config
+
+import (
+	"image/color"
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestParseHexColor(t *testing.T) {
+	tests := []struct {
+		in   string
+		want color.RGBA
+		ok   bool
+	}{
+		{"#424242", color.RGBA{0x42, 0x42, 0x42, 0xff}, true},
+		{"ffffff", color.RGBA{0xff, 0xff, 0xff, 0xff}, true},
+		{"#20bbfc", color.RGBA{0x20, 0xbb, 0xfc, 0xff}, true},
+		{"#12345", color.RGBA{}, false},  // too short
+		{"#zzzzzz", color.RGBA{}, false}, // not hex
+		{"", color.RGBA{}, false},
+	}
+	for _, tc := range tests {
+		got, err := parseHexColor(tc.in)
+		if tc.ok && err != nil {
+			t.Errorf("parseHexColor(%q) unexpected error: %v", tc.in, err)
+		}
+		if !tc.ok && err == nil {
+			t.Errorf("parseHexColor(%q) expected error, got %v", tc.in, got)
+		}
+		if tc.ok && got != tc.want {
+			t.Errorf("parseHexColor(%q) = %v, want %v", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestDefault(t *testing.T) {
+	c := Default()
+	if c.FontSize != 16 {
+		t.Errorf("FontSize = %v, want 16", c.FontSize)
+	}
+	if c.Foreground != (color.RGBA{0x42, 0x42, 0x42, 0xff}) {
+		t.Errorf("Foreground = %v, want #424242", c.Foreground)
+	}
+	if c.Background != (color.RGBA{0xf0, 0xee, 0xe6, 0xff}) {
+		t.Errorf("Background = %v, want #f0eee6", c.Background)
+	}
+	if c.Palette[1] != (color.RGBA{0xb8, 0x1a, 0x6b, 0xff}) {
+		t.Errorf("Palette[1] = %v, want #b81a6b", c.Palette[1])
+	}
+	if c.ScrollbackLines != 10000 {
+		t.Errorf("ScrollbackLines = %d, want 10000", c.ScrollbackLines)
+	}
+	if c.IconFillRatio != 0.85 {
+		t.Errorf("IconFillRatio = %v, want 0.85", c.IconFillRatio)
+	}
+	if c.CursorStyle != "block" {
+		t.Errorf("CursorStyle = %q, want block", c.CursorStyle)
+	}
+}
+
+func TestLoadMissingReturnsDefaults(t *testing.T) {
+	c, err := Load(filepath.Join(t.TempDir(), "nope.toml"))
+	if err != nil {
+		t.Fatalf("Load(missing) error = %v, want nil", err)
+	}
+	if c != Default() {
+		t.Errorf("Load(missing) = %+v, want Default()", c)
+	}
+}
+
+func TestLoadOverrides(t *testing.T) {
+	content := `
+# go-vte config
+font_size = 18
+background = "#101010"
+color1 = "#ff0000"
+scrollback_lines = 5000
+cursor_style = "beam"
+icon_fill_ratio = 0.9
+`
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	c, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if c.FontSize != 18 {
+		t.Errorf("FontSize = %v, want 18", c.FontSize)
+	}
+	if c.Background != (color.RGBA{0x10, 0x10, 0x10, 0xff}) {
+		t.Errorf("Background = %v, want #101010", c.Background)
+	}
+	if c.Palette[1] != (color.RGBA{0xff, 0x00, 0x00, 0xff}) {
+		t.Errorf("Palette[1] = %v, want #ff0000", c.Palette[1])
+	}
+	if c.ScrollbackLines != 5000 {
+		t.Errorf("ScrollbackLines = %d, want 5000", c.ScrollbackLines)
+	}
+	if c.CursorStyle != "beam" {
+		t.Errorf("CursorStyle = %q, want beam", c.CursorStyle)
+	}
+	if c.IconFillRatio != 0.9 {
+		t.Errorf("IconFillRatio = %v, want 0.9", c.IconFillRatio)
+	}
+	// Untouched keys keep defaults.
+	if c.Foreground != Default().Foreground {
+		t.Errorf("Foreground changed unexpectedly: %v", c.Foreground)
+	}
+}
+
+func TestLoadMalformedFallsBack(t *testing.T) {
+	content := `
+font_size = notanumber
+color2 = "#00ff00"
+bogusline
+color99 = "#123456"
+`
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	c, err := Load(path)
+	if err == nil {
+		t.Error("Load(malformed) expected error, got nil")
+	}
+	// Bad font_size keeps default; valid color2 still applied.
+	if c.FontSize != Default().FontSize {
+		t.Errorf("FontSize = %v, want default %v on bad value", c.FontSize, Default().FontSize)
+	}
+	if c.Palette[2] != (color.RGBA{0x00, 0xff, 0x00, 0xff}) {
+		t.Errorf("Palette[2] = %v, want #00ff00 (valid line applied)", c.Palette[2])
+	}
+}
+
+func TestPath(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "/tmp/xdg")
+	if got, want := Path(), filepath.Join("/tmp/xdg", "go-vte", "config.toml"); got != want {
+		t.Errorf("Path() with XDG = %q, want %q", got, want)
+	}
+
+	t.Setenv("XDG_CONFIG_HOME", "")
+	home, err := os.UserHomeDir()
+	if err == nil {
+		if got, want := Path(), filepath.Join(home, ".config", "go-vte", "config.toml"); got != want {
+			t.Errorf("Path() without XDG = %q, want %q", got, want)
+		}
+	}
+}
