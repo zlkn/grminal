@@ -49,6 +49,9 @@ type Config struct {
 	PaddingRight  int
 	PaddingBottom int
 	PaddingLeft   int
+
+	// WindowDecorated controls the OS window border/title bar. false = borderless.
+	WindowDecorated bool
 }
 
 // Default returns the built-in configuration (the current light theme).
@@ -69,6 +72,7 @@ func Default() Config {
 		CursorStyle:     "block",
 		ScrollbackLines: 10000,
 		IconFillRatio:   0.85,
+		WindowDecorated: true,
 	}
 }
 
@@ -157,6 +161,8 @@ func (c *Config) set(key, val string) error {
 		return setInt(&c.PaddingLeft, val)
 	case key == "cursor_style":
 		return setCursorStyle(&c.CursorStyle, val)
+	case key == "window_decorated":
+		return setBool(&c.WindowDecorated, val)
 	case key == "foreground":
 		return setColor(&c.Foreground, val)
 	case key == "background":
@@ -193,6 +199,15 @@ func setInt(dst *int, val string) error {
 		return fmt.Errorf("invalid integer %q", val)
 	}
 	*dst = n
+	return nil
+}
+
+func setBool(dst *bool, val string) error {
+	b, err := strconv.ParseBool(val)
+	if err != nil {
+		return fmt.Errorf("invalid boolean %q", val)
+	}
+	*dst = b
 	return nil
 }
 

@@ -42,6 +42,7 @@ func Run() error {
 
 	ebiten.SetWindowSize(initialWidth, initialHeight)
 	ebiten.SetWindowTitle("go-vte")
+	ebiten.SetWindowDecorated(cfg.WindowDecorated) // false = borderless (no title bar)
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
 	return ebiten.RunGame(g)
 }

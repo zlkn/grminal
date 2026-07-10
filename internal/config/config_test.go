@@ -112,6 +112,9 @@ func TestDefault(t *testing.T) {
 		t.Errorf("padding = %d/%d/%d/%d, want all 0",
 			c.PaddingTop, c.PaddingRight, c.PaddingBottom, c.PaddingLeft)
 	}
+	if !c.WindowDecorated {
+		t.Error("WindowDecorated = false, want true by default")
+	}
 }
 
 func TestLoadMissingReturnsDefaults(t *testing.T) {
@@ -137,6 +140,7 @@ padding_left = 12
 padding_top = 8
 padding_right = 4
 padding_bottom = 6
+window_decorated = false
 `
 	path := filepath.Join(t.TempDir(), "config.toml")
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
@@ -168,6 +172,9 @@ padding_bottom = 6
 	if c.PaddingLeft != 12 || c.PaddingTop != 8 || c.PaddingRight != 4 || c.PaddingBottom != 6 {
 		t.Errorf("padding = L%d T%d R%d B%d, want 12/8/4/6",
 			c.PaddingLeft, c.PaddingTop, c.PaddingRight, c.PaddingBottom)
+	}
+	if c.WindowDecorated {
+		t.Error("WindowDecorated = true, want false from config")
 	}
 	// Untouched keys keep defaults.
 	if c.Foreground != Default().Foreground {

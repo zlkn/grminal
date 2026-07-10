@@ -84,6 +84,7 @@
   * **Шрифт:** размер в px (`font_size`, сейчас `16`). Сам шрифт встроен в бинарник (JetBrains Mono Nerd Font) и не настраивается через конфиг.
   * **Тема:** `foreground`, `background`, `cursor`, `selection_foreground`, `selection_background`, и палитра `color0..color15` (hex `#rrggbb`). Значения по умолчанию — текущая светлая тема из `palette.go`/`draw.go`.
   * **Курсор:** стиль (`block`/`beam`/`underline`) и прозрачность.
+  * **Окно:** `window_decorated` (bool, по умолчанию `true`) — рамка/заголовок окна ОС; `false` = без рамки (borderless, без тайтлбара).
   * **Scrollback:** число строк истории на панель (`scrollback_lines`, сейчас `10000`).
   * **Рендер иконок:** `icon_fill_ratio` (сейчас `0.85`).
   * **Отступы (padding):** `padding_left`, `padding_right`, `padding_top`, `padding_bottom` — инсет содержимого от краёв окна в логических px (масштабируются по device scale, как размер шрифта; по умолчанию `0`). Область отступа заливается цветом фона, сетка ячеек уменьшается под контентную область.
