@@ -11,12 +11,22 @@ import (
 	"github.com/yzolkin/go-vte/internal/vte"
 )
 
-// Run is a maximal horizontal block of cells sharing one style. Text is drawn
-// as a single unit so OpenType shaping (ligatures like != and ->) is preserved.
+// Run is a maximal horizontal block of cells sharing one style (and the same
+// icon-ness). Text is drawn as a single unit so OpenType shaping (ligatures like
+// != and ->) is preserved.
 type Run struct {
 	Col   int       // starting column of the run within the row
 	Text  string    // the run's runes
 	Style vte.Style // shared style of every cell in the run
+	Icon  bool      // true if the run holds Nerd Font icon glyphs
+}
+
+// isIcon reports whether r is a Nerd Font icon (Private Use Area). Such glyphs
+// are drawn enlarged to fill the cell rather than at text size.
+func isIcon(r rune) bool {
+	return (r >= 0xE000 && r <= 0xF8FF) || // BMP PUA
+		(r >= 0xF0000 && r <= 0xFFFFD) || // Supplementary PUA-A
+		(r >= 0x100000 && r <= 0x10FFFD) // Supplementary PUA-B
 }
 
 // SplitRuns tokenizes a cell row into style-contiguous runs, ready for drawing.
@@ -41,7 +51,11 @@ func SplitRuns(row []vte.Cell) []Run {
 	var runs []Run
 	runStart := start
 	for i := start + 1; i <= end; i++ {
-		if i == end || row[i].Style != row[runStart].Style {
+		// Break on a style change or an icon/text transition, so icon glyphs
+		// form their own runs and can be drawn enlarged.
+		if i == end ||
+			row[i].Style != row[runStart].Style ||
+			isIcon(row[i].Rune) != isIcon(row[runStart].Rune) {
 			runs = append(runs, makeRun(row, runStart, i))
 			runStart = i
 		}
@@ -56,5 +70,5 @@ func makeRun(row []vte.Cell, lo, hi int) Run {
 	for i := lo; i < hi; i++ {
 		b.WriteRune(row[i].Rune)
 	}
-	return Run{Col: lo, Text: b.String(), Style: row[lo].Style}
+	return Run{Col: lo, Text: b.String(), Style: row[lo].Style, Icon: isIcon(row[lo].Rune)}
 }

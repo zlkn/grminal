@@ -93,6 +93,20 @@ func TestSplitRunsFullWidth(t *testing.T) {
 	}
 }
 
+func TestSplitRunsIconBoundary(t *testing.T) {
+	// A Nerd Font icon (PUA) between text splits into its own icon-tagged run.
+	runs := SplitRuns(styledRow(8, seg{"ab", vte.Style{}}, seg{"", vte.Style{}}, seg{"cd", vte.Style{}}))
+	if len(runs) != 3 {
+		t.Fatalf("got %d runs, want 3: %+v", len(runs), runs)
+	}
+	if runs[0].Icon || !runs[1].Icon || runs[2].Icon {
+		t.Errorf("icon flags = %v/%v/%v, want false/true/false", runs[0].Icon, runs[1].Icon, runs[2].Icon)
+	}
+	if runs[1].Col != 2 || runs[1].Text != "" {
+		t.Errorf("icon run = {Col:%d Text:%q}, want {2 icon}", runs[1].Col, runs[1].Text)
+	}
+}
+
 func TestSplitRunsColorBoundary(t *testing.T) {
 	runs := SplitRuns(styledRow(10, seg{"ab", redFG}, seg{"cd", greenFG}))
 	if len(runs) != 2 {
