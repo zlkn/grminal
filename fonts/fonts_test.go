@@ -45,6 +45,39 @@ func TestASCIICoverage(t *testing.T) {
 	}
 }
 
+// nerdIcons is a representative sample of Nerd Font glyphs drawn from several of
+// its icon ranges. Plain (non-Nerd) fonts lack these, so they render as boxes.
+var nerdIcons = []struct {
+	r    rune
+	name string
+}{
+	{0xF015, "nf-fa-home"},
+	{0xF07B, "nf-fa-folder"},
+	{0xF121, "nf-fa-code"},
+	{0xE709, "nf-dev-linux"},
+	{0xE62B, "nf-seti-config"},
+	{0xF300, "nf-linux-tux"},
+}
+
+// TestNerdFontIcons is the executable spec for the requirement "the bundled font
+// must be a Nerd Font": each sampled icon must resolve to a real glyph. It fails
+// against a plain font, so swapping in the true JetBrains Mono Nerd Font is what
+// turns it green.
+func TestNerdFontIcons(t *testing.T) {
+	f := parse(t)
+	var b sfnt.Buffer
+	for _, ic := range nerdIcons {
+		gi, err := f.GlyphIndex(&b, ic.r)
+		if err != nil {
+			t.Errorf("GlyphIndex(%s U+%04X): %v", ic.name, ic.r, err)
+			continue
+		}
+		if gi == 0 {
+			t.Errorf("missing Nerd Font icon %s (U+%04X): bundled font is not a Nerd Font build", ic.name, ic.r)
+		}
+	}
+}
+
 // TestMonospaceAdvance enforces the terminal's core assumption: every ASCII
 // glyph advances by the same width. A proportional font would break the grid.
 func TestMonospaceAdvance(t *testing.T) {

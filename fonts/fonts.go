@@ -4,8 +4,10 @@ package fonts
 
 import _ "embed"
 
-// JetBrainsMono is JetBrains Mono Regular, a monospace font with programming
-// ligatures (calt) — used as the terminal's default face.
+// JetBrainsMono is JetBrains Mono Nerd Font (Mono variant) Regular: a monospace
+// font with programming ligatures (calt) plus the Nerd Font icon set, with every
+// glyph — icons included — constrained to a single cell so the terminal grid
+// stays uniform.
 //
-//go:embed JetBrainsMono-Regular.ttf
+//go:embed JetBrainsMonoNerdFontMono-Regular.ttf
 var JetBrainsMono []byte
