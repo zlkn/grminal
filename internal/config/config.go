@@ -9,11 +9,24 @@ import (
 	"errors"
 	"fmt"
 	"image/color"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 )
+
+// Debug enables verbose config-loading logs (path, missing file, effective
+// values). Read/parse errors are always logged regardless. Defaults from the
+// GO_VTE_DEBUG environment variable.
+var Debug = os.Getenv("GO_VTE_DEBUG") != ""
+
+// debugf logs only when Debug is set.
+func debugf(format string, args ...any) {
+	if Debug {
+		log.Printf("[config] "+format, args...)
+	}
+}
 
 // Config holds all user-tunable settings. See CLAUDE.MD §6.
 type Config struct {
@@ -77,14 +90,28 @@ func Path() string {
 // plus a descriptive error.
 func Load(path string) (Config, error) {
 	cfg := Default()
+	debugf("reading %s", path)
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
+			debugf("no config file at %s; using defaults", path)
 			return cfg, nil
 		}
+		log.Printf("[config] cannot read %s: %v; using defaults", path, err)
 		return cfg, err
 	}
-	return parse(cfg, string(data))
+
+	cfg, perr := parse(cfg, string(data))
+	if perr != nil {
+		log.Printf("[config] %s: %v", path, perr)
+	} else {
+		debugf("loaded %s (%d bytes)", path, len(data))
+	}
+	debugf("effective: font_size=%.0f scrollback=%d icon_fill=%.2f cursor=%s padding L%d/R%d/T%d/B%d",
+		cfg.FontSize, cfg.ScrollbackLines, cfg.IconFillRatio, cfg.CursorStyle,
+		cfg.PaddingLeft, cfg.PaddingRight, cfg.PaddingTop, cfg.PaddingBottom)
+	return cfg, perr
 }
 
 // parse applies key = value lines to cfg, accumulating per-line errors.

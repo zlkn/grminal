@@ -1,11 +1,62 @@
 package config
 
 import (
+	"bytes"
 	"image/color"
+	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+// captureLog redirects the standard logger to a buffer for the duration of fn.
+func captureLog(t *testing.T, fn func()) string {
+	t.Helper()
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	defer log.SetOutput(os.Stderr)
+	fn()
+	return buf.String()
+}
+
+func TestLoadLogsMissingWhenDebug(t *testing.T) {
+	old := Debug
+	Debug = true
+	defer func() { Debug = old }()
+
+	path := filepath.Join(t.TempDir(), "missing.toml")
+	out := captureLog(t, func() { _, _ = Load(path) })
+	if !strings.Contains(out, "no config file") || !strings.Contains(out, path) {
+		t.Errorf("debug log = %q, want mention of missing file and path", out)
+	}
+}
+
+func TestLoadSilentWhenNotDebug(t *testing.T) {
+	old := Debug
+	Debug = false
+	defer func() { Debug = old }()
+
+	path := filepath.Join(t.TempDir(), "missing.toml")
+	if out := captureLog(t, func() { _, _ = Load(path) }); out != "" {
+		t.Errorf("expected no log for missing file without debug, got %q", out)
+	}
+}
+
+func TestLoadLogsParseErrorAlways(t *testing.T) {
+	old := Debug
+	Debug = false // errors are logged even without debug
+	defer func() { Debug = old }()
+
+	path := filepath.Join(t.TempDir(), "c.toml")
+	if err := os.WriteFile(path, []byte("font_size = nope\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := captureLog(t, func() { _, _ = Load(path) })
+	if !strings.Contains(out, "config") {
+		t.Errorf("expected parse-error log, got %q", out)
+	}
+}
 
 func TestParseHexColor(t *testing.T) {
 	tests := []struct {

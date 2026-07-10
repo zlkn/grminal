@@ -1,8 +1,6 @@
 package app
 
 import (
-	"log"
-
 	"github.com/hajimehoshi/ebiten/v2"
 
 	"github.com/yzolkin/go-vte/internal/config"
@@ -31,10 +29,7 @@ type game struct {
 // Run starts the application: it opens a window and runs the terminal until the
 // window is closed.
 func Run() error {
-	cfg, err := config.Load(config.Path())
-	if err != nil {
-		log.Printf("config: %v (using defaults)", err)
-	}
+	cfg, _ := config.Load(config.Path()) // config.Load logs read/parse issues itself
 
 	g := &game{
 		app:   New(),

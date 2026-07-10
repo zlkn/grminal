@@ -4,7 +4,7 @@
 # and falls back to the default for that key.
 
 # Font size in logical pixels (the font itself is embedded, not configurable).
-font_size = 16
+font_size = 14
 
 # Theme — colors are quoted "#rrggbb".
 foreground           = "#424242"
@@ -38,11 +38,11 @@ cursor_style = "block"
 scrollback_lines = 10000
 
 # Fraction of the cell height a Nerd Font icon is scaled to fill.
-icon_fill_ratio = 0.85
+icon_fill_ratio = 0.5
 
 # Content inset from the window edges, in logical px (scaled by device scale).
 # The padding band shows the background color; the cell grid shrinks to fit.
-padding_left   = 0
-padding_right  = 0
-padding_top    = 0
-padding_bottom = 0
+padding_left   = 40
+padding_right  = 30
+padding_top    = 10
+padding_bottom = 10
