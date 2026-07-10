@@ -3,6 +3,7 @@ package render
 import (
 	"bytes"
 	"image/color"
+	"math"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/text/v2"
@@ -59,13 +60,17 @@ func NewRenderer(sizePx float64) (*Renderer, error) {
 	face := &text.GoTextFace{Source: src, Size: sizePx}
 
 	m := face.Metrics()
+	// Snap cell size to whole pixels so every column/row lands on the pixel grid
+	// — sub-pixel cell origins make glyphs rasterize blurry.
+	cellW := math.Ceil(text.Advance("M", face))
+	cellH := math.Ceil(m.HAscent + m.HDescent)
 	return &Renderer{
 		face:      face,
 		sf:        sf,
 		icons:     make(map[rune]iconGeom),
 		size:      sizePx,
-		cellW:     text.Advance("M", face),
-		cellH:     m.HAscent + m.HDescent,
+		cellW:     cellW,
+		cellH:     cellH,
 		ascent:    m.HAscent,
 		defaultFG: color.RGBA{0x42, 0x42, 0x42, 0xff}, // #424242
 		defaultBG: color.RGBA{0xf0, 0xee, 0xe6, 0xff}, // #f0eee6

@@ -20,6 +20,7 @@ type game struct {
 	app   *App
 	r     *render.Renderer
 	panes map[int]*pane.Pane // keyed by tab ID
+	scale float64            // current device scale factor
 	cols  int
 	rows  int
 }
@@ -27,24 +28,33 @@ type game struct {
 // Run starts the application: it opens a window and runs the terminal until the
 // window is closed.
 func Run() error {
-	r, err := render.NewRenderer(fontSize)
-	if err != nil {
-		return err
-	}
-	cols, rows := r.GridSize(initialWidth, initialHeight)
-
 	g := &game{
 		app:   New(),
-		r:     r,
 		panes: make(map[int]*pane.Pane),
-		cols:  cols,
-		rows:  rows,
+	}
+	if err := g.setScale(1); err != nil { // real scale is applied in LayoutF
+		return err
 	}
 
 	ebiten.SetWindowSize(initialWidth, initialHeight)
 	ebiten.SetWindowTitle("go-vte")
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
 	return ebiten.RunGame(g)
+}
+
+// setScale (re)builds the renderer for a device scale factor so glyphs are
+// rasterized at native resolution instead of being upscaled (blurry).
+func (g *game) setScale(s float64) error {
+	if s <= 0 {
+		s = 1
+	}
+	r, err := render.NewRenderer(fontSize * s)
+	if err != nil {
+		return err
+	}
+	g.r = r
+	g.scale = s
+	return nil
 }
 
 // Update advances one frame: reconcile panes with tabs, then handle input.
@@ -61,17 +71,25 @@ func (g *game) Draw(screen *ebiten.Image) {
 	}
 }
 
-// Layout maps the window size to the logical screen and reflows panes when the
-// cell grid dimensions change.
-func (g *game) Layout(w, h int) (int, int) {
-	cols, rows := g.r.GridSize(w, h)
+// Layout is required by ebiten.Game but superseded by LayoutF below.
+func (g *game) Layout(_, _ int) (int, int) { return 1, 1 }
+
+// LayoutF renders at the monitor's device scale (physical pixels) so text is
+// crisp on HiDPI displays, and reflows panes when the cell grid changes.
+func (g *game) LayoutF(outsideW, outsideH float64) (float64, float64) {
+	if s := ebiten.Monitor().DeviceScaleFactor(); s > 0 && s != g.scale {
+		_ = g.setScale(s)
+	}
+	pw, ph := outsideW*g.scale, outsideH*g.scale
+
+	cols, rows := g.r.GridSize(int(pw), int(ph))
 	if cols != g.cols || rows != g.rows {
 		g.cols, g.rows = cols, rows
 		for _, p := range g.panes {
 			_ = p.Resize(cols, rows)
 		}
 	}
-	return w, h
+	return pw, ph
 }
 
 // active returns the pane backing the active tab, or nil if it has none yet.
