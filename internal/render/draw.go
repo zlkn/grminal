@@ -7,8 +7,8 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/text/v2"
 	"github.com/hajimehoshi/ebiten/v2/vector"
-	"golang.org/x/image/font/gofont/gomono"
 
+	"github.com/yzolkin/go-vte/fonts"
 	"github.com/yzolkin/go-vte/internal/vte"
 )
 
@@ -27,10 +27,10 @@ type Renderer struct {
 	cursor    color.RGBA
 }
 
-// NewRenderer builds a renderer using the built-in Go Mono font at the given
-// pixel size.
+// NewRenderer builds a renderer using the bundled JetBrains Mono font (with
+// programming ligatures) at the given pixel size.
 func NewRenderer(sizePx float64) (*Renderer, error) {
-	src, err := text.NewGoTextFaceSource(bytes.NewReader(gomono.TTF))
+	src, err := text.NewGoTextFaceSource(bytes.NewReader(fonts.JetBrainsMono))
 	if err != nil {
 		return nil, err
 	}

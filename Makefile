@@ -23,7 +23,7 @@ cover:
 	$(GO) tool cover -func=coverage.out
 
 build:
-	$(GO) build ./...
+	$(GO) build -o bin/go-vte ./cmd/go-vte
 
 vet:
 	$(GO) vet ./...

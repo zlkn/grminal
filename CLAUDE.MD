@@ -9,6 +9,7 @@
 * **Язык разработки:** Go 1.20+ (`CGO_ENABLED=0`).
 * **Графическое ядро:** `github.com/hajimehoshi/ebiten/v2` (Vulkan/OpenGL, автоматический батчинг Draw Calls).
 * **Рендеринг текста и лигатур:** `github.com/hajimehoshi/ebiten/v2/text/v2` (встроенный шейпер текста на базе HarfBuzz).
+* **Шрифт (по умолчанию):** **JetBrains Mono Regular** — обязательный шрифт терминала. Файл `fonts/JetBrainsMono-Regular.ttf` встраивается в бинарник через `go:embed` (пакет `fonts`), поэтому рантайм-зависимости от файла нет. Моноширинный, с программными лигатурами (OpenType `calt`: `!=`, `->`, `=>`).
 * **Связь с ОС (Псевдотерминал):** `github.com/creack/pty`.
 * **Парсер ANSI/VTE:** `github.com/charmbracelet/xterm` (или кастомный zero-allocation парсер-автомат).
 
