@@ -3,6 +3,8 @@ package pane
 import (
 	"bytes"
 	"testing"
+
+	"github.com/yzolkin/go-vte/internal/vte"
 )
 
 // fakePTY is an in-memory PTY: canned output is served from out, keystrokes
@@ -51,6 +53,33 @@ func TestPaneRunRendersOutput(t *testing.T) {
 	}
 	if got := rowText(p, 1); got != "world     " {
 		t.Errorf("row1 = %q, want %q", got, "world     ")
+	}
+}
+
+func TestScrollbackCapturesScrolledLines(t *testing.T) {
+	// A 2-row grid; four logical lines force the first two off the top.
+	pty := newFakePTY("L0\r\nL1\r\nL2\r\nL3")
+	p := NewPane(pty, 5, 2)
+	if err := p.Run(); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	sb := p.Scrollback()
+	if sb.Len() != 2 {
+		t.Fatalf("scrollback Len = %d, want 2", sb.Len())
+	}
+	lineText := func(cells []vte.Cell) string {
+		rs := make([]rune, len(cells))
+		for i, c := range cells {
+			rs[i] = c.Rune
+		}
+		return string(rs)
+	}
+	if got := lineText(sb.At(0)); got != "L0   " {
+		t.Errorf("oldest scrollback line = %q, want %q", got, "L0   ")
+	}
+	if got := lineText(sb.At(1)); got != "L1   " {
+		t.Errorf("second scrollback line = %q, want %q", got, "L1   ")
 	}
 }
 

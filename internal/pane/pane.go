@@ -8,11 +8,15 @@ import (
 	"io"
 	"sync"
 
+	"github.com/yzolkin/go-vte/internal/scrollback"
 	"github.com/yzolkin/go-vte/internal/vte"
 )
 
 // readBufSize is the chunk size for draining the PTY.
 const readBufSize = 32 * 1024
+
+// scrollbackLines is how many scrolled-off lines each pane retains.
+const scrollbackLines = 10000
 
 // bufPool recycles read buffers to keep the PTY drain loop allocation-free.
 var bufPool = sync.Pool{
@@ -32,13 +36,20 @@ type Pane struct {
 	mu     sync.Mutex // guards grid mutation and snapshotting
 	grid   *vte.Grid
 	parser *vte.Parser
+	scroll *scrollback.Ring
 }
 
-// NewPane returns a pane wrapping pty with a fresh cols×rows grid.
+// NewPane returns a pane wrapping pty with a fresh cols×rows grid and a
+// scrollback ring fed by lines that scroll off the top.
 func NewPane(pty PTY, cols, rows int) *Pane {
 	g := vte.NewGrid(cols, rows)
-	return &Pane{pty: pty, grid: g, parser: vte.NewParser(g)}
+	ring := scrollback.NewRing(scrollbackLines, cols)
+	g.SetScrollHook(ring.Push)
+	return &Pane{pty: pty, grid: g, parser: vte.NewParser(g), scroll: ring}
 }
+
+// Scrollback returns the pane's history ring.
+func (p *Pane) Scrollback() *scrollback.Ring { return p.scroll }
 
 // Grid returns the pane's character grid. It is not safe to read concurrently
 // with Run; use Snapshot for that. Intended for single-threaded/test use.

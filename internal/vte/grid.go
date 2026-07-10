@@ -9,6 +9,11 @@ type Grid struct {
 	cols, rows int
 	cells      []Cell // len == cols*rows, row-major
 	curX, curY int
+
+	// onScroll, if set, receives each row evicted off the top by scrolling. It
+	// is a hook (rather than a direct scrollback dependency) so vte stays free of
+	// an import cycle with the scrollback package.
+	onScroll func(row []Cell)
 }
 
 // NewGrid returns a cols×rows grid filled with blank cells and the cursor at
@@ -136,12 +141,17 @@ func (g *Grid) lineFeed() {
 	g.scrollUp()
 }
 
-// scrollUp shifts every row up by one; the top row is discarded and the bottom
-// row is blanked.
-//
-// TODO(stage-2): push the discarded top row into the scrollback ring instead of
-// dropping it.
+// SetScrollHook registers a callback invoked with each row that scrolls off the
+// top of the grid. The slice is only valid for the duration of the call; sinks
+// (e.g. the scrollback ring) must copy it.
+func (g *Grid) SetScrollHook(fn func(row []Cell)) { g.onScroll = fn }
+
+// scrollUp shifts every row up by one; the top row is handed to the scroll hook
+// (if any) then discarded, and the bottom row is blanked.
 func (g *Grid) scrollUp() {
+	if g.onScroll != nil {
+		g.onScroll(g.cells[:g.cols])
+	}
 	copy(g.cells, g.cells[g.cols:])
 	bottom := (g.rows - 1) * g.cols
 	for i := bottom; i < len(g.cells); i++ {
