@@ -1,6 +1,57 @@
 package vte
 
-import "testing"
+import (
+	"bytes"
+	"testing"
+)
+
+func TestPrimaryDeviceAttributes(t *testing.T) {
+	g := NewGrid(10, 3)
+	p := NewParser(g)
+	var reply bytes.Buffer
+	p.SetReply(&reply)
+
+	p.Write([]byte("\x1b[c")) // DA1 query
+	if got := reply.String(); got != "\x1b[?6c" {
+		t.Errorf("DA1 reply = %q, want %q", got, "\x1b[?6c")
+	}
+}
+
+func TestSecondaryDeviceAttributes(t *testing.T) {
+	g := NewGrid(10, 3)
+	p := NewParser(g)
+	var reply bytes.Buffer
+	p.SetReply(&reply)
+
+	p.Write([]byte("\x1b[>c")) // DA2 query
+	if got := reply.String(); got != "\x1b[>0;10;0c" {
+		t.Errorf("DA2 reply = %q, want %q", got, "\x1b[>0;10;0c")
+	}
+}
+
+func TestDeviceStatusReport(t *testing.T) {
+	g := NewGrid(10, 3)
+	p := NewParser(g)
+	var reply bytes.Buffer
+	p.SetReply(&reply)
+
+	p.Write([]byte("\x1b[5n")) // status query
+	if got := reply.String(); got != "\x1b[0n" {
+		t.Errorf("DSR reply = %q, want %q", got, "\x1b[0n")
+	}
+}
+
+func TestCursorPositionReport(t *testing.T) {
+	g := NewGrid(10, 5)
+	p := NewParser(g)
+	var reply bytes.Buffer
+	p.SetReply(&reply)
+
+	p.Write([]byte("\x1b[2;5H\x1b[6n")) // move to row2,col5 then query position
+	if got := reply.String(); got != "\x1b[2;5R" {
+		t.Errorf("CPR reply = %q, want %q", got, "\x1b[2;5R")
+	}
+}
 
 // row returns the runes of grid row y as a string.
 func row(g *Grid, y int) string {

@@ -1,6 +1,10 @@
 package vte
 
-import "unicode/utf8"
+import (
+	"io"
+	"strconv"
+	"unicode/utf8"
+)
 
 // Parser is the ANSI/VTE state machine. It consumes bytes from the PTY and
 // mutates a Grid; it holds no reference to the GPU. State persists across Write
@@ -10,8 +14,9 @@ import "unicode/utf8"
 // the common C0 controls, CSI cursor movement and erase, SGR styling, and
 // swallowing of OSC strings and charset-designation escapes.
 type Parser struct {
-	g   *Grid
-	pen Style // current graphic rendition applied to printed cells
+	g     *Grid
+	reply io.Writer // where device-query responses are written (the PTY)
+	pen   Style     // current graphic rendition applied to printed cells
 
 	state    pstate
 	params   [maxParams]int
@@ -35,6 +40,19 @@ const maxParams = 16
 
 // NewParser returns a parser that writes into g.
 func NewParser(g *Grid) *Parser { return &Parser{g: g} }
+
+// SetReply sets the writer that receives responses to device queries (DA, DSR,
+// cursor-position). In the running app this is the PTY, so answers are delivered
+// to the child process as if typed. Without it, such queries are silently
+// ignored — which makes shells like fish hang waiting for a reply.
+func (p *Parser) SetReply(w io.Writer) { p.reply = w }
+
+// respond writes a query response to the reply writer, if one is set.
+func (p *Parser) respond(s string) {
+	if p.reply != nil {
+		_, _ = io.WriteString(p.reply, s)
+	}
+}
 
 // Write feeds a chunk of terminal output through the state machine. It always
 // consumes all of b and returns len(b), nil to satisfy io.Writer.
@@ -168,6 +186,18 @@ func (p *Parser) param(i, def int) int {
 // dispatchCSI executes a completed CSI sequence with final byte c. Private
 // sequences (DEC modes like ESC[?25h) are recognised but ignored for now.
 func (p *Parser) dispatchCSI(c byte) {
+	// Device queries must be answered even when a private marker is present
+	// (secondary DA is CSI > c).
+	switch c {
+	case 'c':
+		p.deviceAttributes()
+		return
+	case 'n':
+		if p.priv == 0 {
+			p.deviceStatus()
+		}
+		return
+	}
 	if p.priv != 0 {
 		return
 	}
@@ -192,6 +222,28 @@ func (p *Parser) dispatchCSI(c byte) {
 		p.g.eraseLine(p.param(0, 0))
 	case 'm': // SGR - select graphic rendition
 		p.applySGR()
+	}
+}
+
+// deviceAttributes answers a DA query. Primary (CSI c) reports a VT102-class
+// terminal; secondary (CSI > c) reports a version tuple.
+func (p *Parser) deviceAttributes() {
+	switch p.priv {
+	case '>':
+		p.respond("\x1b[>0;10;0c")
+	case 0:
+		p.respond("\x1b[?6c")
+	}
+}
+
+// deviceStatus answers a DSR query: 5 -> "terminal OK", 6 -> cursor position
+// report (1-based row;col).
+func (p *Parser) deviceStatus() {
+	switch p.param(0, 0) {
+	case 5:
+		p.respond("\x1b[0n")
+	case 6:
+		p.respond("\x1b[" + strconv.Itoa(p.g.curY+1) + ";" + strconv.Itoa(p.g.curX+1) + "R")
 	}
 }
 

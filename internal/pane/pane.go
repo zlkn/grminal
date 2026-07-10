@@ -45,7 +45,9 @@ func NewPane(pty PTY, cols, rows int) *Pane {
 	g := vte.NewGrid(cols, rows)
 	ring := scrollback.NewRing(scrollbackLines, cols)
 	g.SetScrollHook(ring.Push)
-	return &Pane{pty: pty, grid: g, parser: vte.NewParser(g), scroll: ring}
+	parser := vte.NewParser(g)
+	parser.SetReply(pty) // device-query responses go back to the child process
+	return &Pane{pty: pty, grid: g, parser: parser, scroll: ring}
 }
 
 // Scrollback returns the pane's history ring.
