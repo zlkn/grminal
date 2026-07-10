@@ -57,6 +57,10 @@ func TestDefault(t *testing.T) {
 	if c.CursorStyle != "block" {
 		t.Errorf("CursorStyle = %q, want block", c.CursorStyle)
 	}
+	if c.PaddingTop != 0 || c.PaddingRight != 0 || c.PaddingBottom != 0 || c.PaddingLeft != 0 {
+		t.Errorf("padding = %d/%d/%d/%d, want all 0",
+			c.PaddingTop, c.PaddingRight, c.PaddingBottom, c.PaddingLeft)
+	}
 }
 
 func TestLoadMissingReturnsDefaults(t *testing.T) {
@@ -78,6 +82,10 @@ color1 = "#ff0000"
 scrollback_lines = 5000
 cursor_style = "beam"
 icon_fill_ratio = 0.9
+padding_left = 12
+padding_top = 8
+padding_right = 4
+padding_bottom = 6
 `
 	path := filepath.Join(t.TempDir(), "config.toml")
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
@@ -105,6 +113,10 @@ icon_fill_ratio = 0.9
 	}
 	if c.IconFillRatio != 0.9 {
 		t.Errorf("IconFillRatio = %v, want 0.9", c.IconFillRatio)
+	}
+	if c.PaddingLeft != 12 || c.PaddingTop != 8 || c.PaddingRight != 4 || c.PaddingBottom != 6 {
+		t.Errorf("padding = L%d T%d R%d B%d, want 12/8/4/6",
+			c.PaddingLeft, c.PaddingTop, c.PaddingRight, c.PaddingBottom)
 	}
 	// Untouched keys keep defaults.
 	if c.Foreground != Default().Foreground {

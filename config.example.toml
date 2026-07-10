@@ -39,3 +39,10 @@ scrollback_lines = 10000
 
 # Fraction of the cell height a Nerd Font icon is scaled to fill.
 icon_fill_ratio = 0.85
+
+# Content inset from the window edges, in logical px (scaled by device scale).
+# The padding band shows the background color; the cell grid shrinks to fit.
+padding_left   = 0
+padding_right  = 0
+padding_top    = 0
+padding_bottom = 0

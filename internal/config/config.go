@@ -29,6 +29,13 @@ type Config struct {
 	CursorStyle     string // block | beam | underline
 	ScrollbackLines int
 	IconFillRatio   float64
+
+	// Padding is the inset in logical pixels on each side of the terminal
+	// content (scaled by the display device scale at render time).
+	PaddingTop    int
+	PaddingRight  int
+	PaddingBottom int
+	PaddingLeft   int
 }
 
 // Default returns the built-in configuration (the current light theme).
@@ -113,6 +120,14 @@ func (c *Config) set(key, val string) error {
 		return setFloat(&c.IconFillRatio, val)
 	case key == "scrollback_lines":
 		return setInt(&c.ScrollbackLines, val)
+	case key == "padding_top":
+		return setInt(&c.PaddingTop, val)
+	case key == "padding_right":
+		return setInt(&c.PaddingRight, val)
+	case key == "padding_bottom":
+		return setInt(&c.PaddingBottom, val)
+	case key == "padding_left":
+		return setInt(&c.PaddingLeft, val)
 	case key == "cursor_style":
 		return setCursorStyle(&c.CursorStyle, val)
 	case key == "foreground":

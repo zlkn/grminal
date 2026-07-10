@@ -35,6 +35,8 @@ type Renderer struct {
 	iconFillRatio float64
 	cursorStyle   string
 
+	padL, padR, padT, padB float64 // inset in physical px
+
 	defaultFG color.RGBA
 	defaultBG color.RGBA
 	cursor    color.RGBA
@@ -47,9 +49,10 @@ type iconGeom struct {
 }
 
 // NewRenderer builds a renderer using the bundled JetBrains Mono Nerd Font,
-// themed from cfg. sizePx is the pixel font size (cfg.FontSize already scaled by
-// the caller for the display's device scale).
-func NewRenderer(cfg config.Config, sizePx float64) (*Renderer, error) {
+// themed from cfg. scale is the display device scale factor; the font size and
+// padding (both in logical px in cfg) are multiplied by it so everything is
+// rasterized at native resolution.
+func NewRenderer(cfg config.Config, scale float64) (*Renderer, error) {
 	src, err := text.NewGoTextFaceSource(bytes.NewReader(fonts.JetBrainsMono))
 	if err != nil {
 		return nil, err
@@ -58,6 +61,7 @@ func NewRenderer(cfg config.Config, sizePx float64) (*Renderer, error) {
 	if err != nil {
 		return nil, err
 	}
+	sizePx := cfg.FontSize * scale
 	face := &text.GoTextFace{Source: src, Size: sizePx}
 
 	m := face.Metrics()
@@ -81,19 +85,34 @@ func NewRenderer(cfg config.Config, sizePx float64) (*Renderer, error) {
 		palette:       cfg.Palette,
 		iconFillRatio: cfg.IconFillRatio,
 		cursorStyle:   cfg.CursorStyle,
+		padL:          padPx(cfg.PaddingLeft, scale),
+		padR:          padPx(cfg.PaddingRight, scale),
+		padT:          padPx(cfg.PaddingTop, scale),
+		padB:          padPx(cfg.PaddingBottom, scale),
 		defaultFG:     cfg.Foreground,
 		defaultBG:     cfg.Background,
 		cursor:        cursor,
 	}, nil
 }
 
+// padPx converts a logical-pixel padding to physical px (>= 0).
+func padPx(logical int, scale float64) float64 {
+	if logical <= 0 {
+		return 0
+	}
+	return math.Round(float64(logical) * scale)
+}
+
 // CellSize returns the pixel size of one character cell.
 func (r *Renderer) CellSize() (w, h float64) { return r.cellW, r.cellH }
 
-// GridSize returns how many whole cells fit in a w×h pixel area.
+// GridSize returns how many whole cells fit in a w×h pixel area, after removing
+// the padding on each side.
 func (r *Renderer) GridSize(wPx, hPx int) (cols, rows int) {
-	cols = int(float64(wPx) / r.cellW)
-	rows = int(float64(hPx) / r.cellH)
+	usableW := float64(wPx) - r.padL - r.padR
+	usableH := float64(hPx) - r.padT - r.padB
+	cols = int(usableW / r.cellW)
+	rows = int(usableH / r.cellH)
 	if cols < 1 {
 		cols = 1
 	}
@@ -110,11 +129,11 @@ func (r *Renderer) Draw(dst *ebiten.Image, snap vte.Snapshot) {
 
 	for y := 0; y < snap.Rows; y++ {
 		row := snap.Row(y)
-		topY := float64(y) * r.cellH
+		topY := r.padT + float64(y)*r.cellH
 
 		for _, run := range SplitRuns(row) {
 			fg, bg, hasBG := r.colors(run.Style)
-			xPx := float32(float64(run.Col) * r.cellW)
+			xPx := float32(r.padL + float64(run.Col)*r.cellW)
 
 			if hasBG {
 				wPx := float32(float64(len([]rune(run.Text))) * r.cellW)
@@ -144,7 +163,7 @@ func (r *Renderer) Draw(dst *ebiten.Image, snap vte.Snapshot) {
 // centered in the cell (overflowing horizontally if needed).
 func (r *Renderer) drawIcon(dst *ebiten.Image, ru rune, col int, topY float64, fg color.RGBA) {
 	g := r.iconMetrics(ru)
-	cx := float64(col)*r.cellW + r.cellW/2
+	cx := r.padL + float64(col)*r.cellW + r.cellW/2
 	cy := topY + r.cellH/2
 
 	op := &text.DrawOptions{}
@@ -178,8 +197,8 @@ func (r *Renderer) iconMetrics(ru rune) iconGeom {
 
 // drawCursor overlays a translucent block at the cursor cell.
 func (r *Renderer) drawCursor(dst *ebiten.Image, snap vte.Snapshot) {
-	x := float32(float64(snap.CurX) * r.cellW)
-	y := float32(float64(snap.CurY) * r.cellH)
+	x := float32(r.padL + float64(snap.CurX)*r.cellW)
+	y := float32(r.padT + float64(snap.CurY)*r.cellH)
 	vector.DrawFilledRect(dst, x, y, float32(r.cellW), float32(r.cellH), r.cursor, false)
 }
 

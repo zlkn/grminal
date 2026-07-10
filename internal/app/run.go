@@ -57,7 +57,7 @@ func (g *game) setScale(s float64) error {
 	if s <= 0 {
 		s = 1
 	}
-	r, err := render.NewRenderer(g.cfg, g.cfg.FontSize*s)
+	r, err := render.NewRenderer(g.cfg, s)
 	if err != nil {
 		return err
 	}

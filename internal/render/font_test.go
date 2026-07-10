@@ -105,7 +105,7 @@ func TestLigatureNotShrunk(t *testing.T) {
 // TestRendererCellMetrics checks the renderer builds and derives a sane,
 // positive cell size from the font.
 func TestRendererCellMetrics(t *testing.T) {
-	r, err := NewRenderer(config.Default(), 16)
+	r, err := NewRenderer(config.Default(), 1)
 	if err != nil {
 		t.Fatalf("NewRenderer: %v", err)
 	}
@@ -116,5 +116,33 @@ func TestRendererCellMetrics(t *testing.T) {
 	cols, rows := r.GridSize(800, 600)
 	if cols < 1 || rows < 1 {
 		t.Errorf("grid size = %dx%d, want >= 1x1", cols, rows)
+	}
+}
+
+// TestGridSizeWithPadding checks that padding shrinks the usable cell grid.
+func TestGridSizeWithPadding(t *testing.T) {
+	base, err := NewRenderer(config.Default(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseCols, baseRows := base.GridSize(800, 600)
+
+	cfg := config.Default()
+	cfg.PaddingLeft, cfg.PaddingRight = 60, 60 // ~120px off the width
+	cfg.PaddingTop, cfg.PaddingBottom = 40, 40 // ~80px off the height
+	padded, err := NewRenderer(cfg, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cols, rows := padded.GridSize(800, 600)
+
+	if cols >= baseCols {
+		t.Errorf("padded cols = %d, want fewer than %d", cols, baseCols)
+	}
+	if rows >= baseRows {
+		t.Errorf("padded rows = %d, want fewer than %d", rows, baseRows)
+	}
+	if cols < 1 || rows < 1 {
+		t.Errorf("padded grid = %dx%d, want >= 1x1", cols, rows)
 	}
 }
