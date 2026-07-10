@@ -13,13 +13,9 @@ import (
 	"golang.org/x/image/math/fixed"
 
 	"github.com/yzolkin/go-vte/fonts"
+	"github.com/yzolkin/go-vte/internal/config"
 	"github.com/yzolkin/go-vte/internal/vte"
 )
-
-// iconFillRatio is the fraction of the cell height a Nerd Font icon is scaled to
-// fill. >1-cell-wide icons are allowed to overflow horizontally (centered),
-// which matches how kitty/wezterm render symbols. Tune to taste.
-const iconFillRatio = 0.85
 
 // Renderer draws terminal grids to an ebiten target. It owns the font face and
 // the derived cell metrics. It is deliberately thin: all layout decisions live
@@ -35,6 +31,10 @@ type Renderer struct {
 	cellH  float64
 	ascent float64
 
+	palette       [16]color.RGBA
+	iconFillRatio float64
+	cursorStyle   string
+
 	defaultFG color.RGBA
 	defaultBG color.RGBA
 	cursor    color.RGBA
@@ -46,9 +46,10 @@ type iconGeom struct {
 	inkCX, inkCY float64 // ink centre in the base-face draw coordinate space
 }
 
-// NewRenderer builds a renderer using the bundled JetBrains Mono Nerd Font at
-// the given pixel size.
-func NewRenderer(sizePx float64) (*Renderer, error) {
+// NewRenderer builds a renderer using the bundled JetBrains Mono Nerd Font,
+// themed from cfg. sizePx is the pixel font size (cfg.FontSize already scaled by
+// the caller for the display's device scale).
+func NewRenderer(cfg config.Config, sizePx float64) (*Renderer, error) {
 	src, err := text.NewGoTextFaceSource(bytes.NewReader(fonts.JetBrainsMono))
 	if err != nil {
 		return nil, err
@@ -64,17 +65,25 @@ func NewRenderer(sizePx float64) (*Renderer, error) {
 	// — sub-pixel cell origins make glyphs rasterize blurry.
 	cellW := math.Ceil(text.Advance("M", face))
 	cellH := math.Ceil(m.HAscent + m.HDescent)
+
+	// The cursor is drawn as a translucent block so the glyph beneath shows.
+	cursor := cfg.Cursor
+	cursor.A = 0x99
+
 	return &Renderer{
-		face:      face,
-		sf:        sf,
-		icons:     make(map[rune]iconGeom),
-		size:      sizePx,
-		cellW:     cellW,
-		cellH:     cellH,
-		ascent:    m.HAscent,
-		defaultFG: color.RGBA{0x42, 0x42, 0x42, 0xff}, // #424242
-		defaultBG: color.RGBA{0xf0, 0xee, 0xe6, 0xff}, // #f0eee6
-		cursor:    color.RGBA{0x20, 0xbb, 0xfc, 0x99}, // #20bbfc, translucent block
+		face:          face,
+		sf:            sf,
+		icons:         make(map[rune]iconGeom),
+		size:          sizePx,
+		cellW:         cellW,
+		cellH:         cellH,
+		ascent:        m.HAscent,
+		palette:       cfg.Palette,
+		iconFillRatio: cfg.IconFillRatio,
+		cursorStyle:   cfg.CursorStyle,
+		defaultFG:     cfg.Foreground,
+		defaultBG:     cfg.Background,
+		cursor:        cursor,
 	}, nil
 }
 
@@ -157,7 +166,7 @@ func (r *Renderer) iconMetrics(ru rune) iconGeom {
 		if b, _, err := r.sf.GlyphBounds(&r.buf, gi, ppem, font.HintingNone); err == nil {
 			inkH := f26(b.Max.Y - b.Min.Y)
 			if inkH > 0 {
-				g.scale = clampF(r.cellH*iconFillRatio/inkH, 0.5, 3)
+				g.scale = clampF(r.cellH*r.iconFillRatio/inkH, 0.5, 3)
 			}
 			g.inkCX = f26(b.Min.X+b.Max.X) / 2
 			g.inkCY = r.ascent + f26(b.Min.Y+b.Max.Y)/2
@@ -197,7 +206,7 @@ func (r *Renderer) resolve(c vte.Color, def color.RGBA) color.RGBA {
 	case vte.ColorRGB:
 		return color.RGBA{c.R, c.G, c.B, 0xff}
 	case vte.ColorIndexed:
-		return palette256(c.Idx)
+		return r.palette256(c.Idx)
 	default:
 		return def
 	}

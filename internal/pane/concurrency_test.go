@@ -31,7 +31,7 @@ var _ PTY = (*pipePTY)(nil)
 // It must be clean under `go test -race`; that is the whole point of the test.
 func TestConcurrentSnapshotDuringRun(t *testing.T) {
 	pty := newPipePTY()
-	p := NewPane(pty, 20, 5)
+	p := NewPane(pty, 20, 5, 1000)
 
 	done := make(chan error, 1)
 	go func() { done <- p.Run() }()
@@ -64,7 +64,7 @@ func TestConcurrentSnapshotDuringRun(t *testing.T) {
 
 func TestSnapshotIsIndependentCopy(t *testing.T) {
 	pty := newFakePTY("hi")
-	p := NewPane(pty, 5, 1)
+	p := NewPane(pty, 5, 1, 1000)
 	_ = p.Run()
 
 	snap := p.Snapshot()

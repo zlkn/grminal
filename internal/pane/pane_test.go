@@ -43,7 +43,7 @@ func rowText(p *Pane, y int) string {
 
 func TestPaneRunRendersOutput(t *testing.T) {
 	pty := newFakePTY("hello\r\nworld")
-	p := NewPane(pty, 10, 3)
+	p := NewPane(pty, 10, 3, 1000)
 
 	if err := p.Run(); err != nil {
 		t.Fatalf("Run: %v", err)
@@ -59,7 +59,7 @@ func TestPaneRunRendersOutput(t *testing.T) {
 func TestScrollbackCapturesScrolledLines(t *testing.T) {
 	// A 2-row grid; four logical lines force the first two off the top.
 	pty := newFakePTY("L0\r\nL1\r\nL2\r\nL3")
-	p := NewPane(pty, 5, 2)
+	p := NewPane(pty, 5, 2, 1000)
 	if err := p.Run(); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestScrollbackCapturesScrolledLines(t *testing.T) {
 
 func TestPaneWriteForwardsToPTY(t *testing.T) {
 	pty := newFakePTY("")
-	p := NewPane(pty, 10, 3)
+	p := NewPane(pty, 10, 3, 1000)
 
 	if _, err := p.Write([]byte("ls\r")); err != nil {
 		t.Fatalf("Write: %v", err)
@@ -97,7 +97,7 @@ func TestPaneWriteForwardsToPTY(t *testing.T) {
 
 func TestPaneResize(t *testing.T) {
 	pty := newFakePTY("")
-	p := NewPane(pty, 10, 3)
+	p := NewPane(pty, 10, 3, 1000)
 
 	if err := p.Resize(100, 40); err != nil {
 		t.Fatalf("Resize: %v", err)

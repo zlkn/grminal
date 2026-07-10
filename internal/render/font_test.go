@@ -9,6 +9,7 @@ import (
 	"golang.org/x/image/math/fixed"
 
 	"github.com/yzolkin/go-vte/fonts"
+	"github.com/yzolkin/go-vte/internal/config"
 )
 
 func testFace(t *testing.T) *text.GoTextFace {
@@ -104,7 +105,7 @@ func TestLigatureNotShrunk(t *testing.T) {
 // TestRendererCellMetrics checks the renderer builds and derives a sane,
 // positive cell size from the font.
 func TestRendererCellMetrics(t *testing.T) {
-	r, err := NewRenderer(16)
+	r, err := NewRenderer(config.Default(), 16)
 	if err != nil {
 		t.Fatalf("NewRenderer: %v", err)
 	}

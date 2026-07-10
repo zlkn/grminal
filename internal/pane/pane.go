@@ -15,9 +15,6 @@ import (
 // readBufSize is the chunk size for draining the PTY.
 const readBufSize = 32 * 1024
 
-// scrollbackLines is how many scrolled-off lines each pane retains.
-const scrollbackLines = 10000
-
 // bufPool recycles read buffers to keep the PTY drain loop allocation-free.
 var bufPool = sync.Pool{
 	New: func() any {
@@ -40,8 +37,8 @@ type Pane struct {
 }
 
 // NewPane returns a pane wrapping pty with a fresh cols×rows grid and a
-// scrollback ring fed by lines that scroll off the top.
-func NewPane(pty PTY, cols, rows int) *Pane {
+// scrollback ring of scrollbackLines rows, fed by lines that scroll off the top.
+func NewPane(pty PTY, cols, rows, scrollbackLines int) *Pane {
 	g := vte.NewGrid(cols, rows)
 	ring := scrollback.NewRing(scrollbackLines, cols)
 	g.SetScrollHook(ring.Push)

@@ -1,0 +1,41 @@
+# go-vte configuration — copy to $XDG_CONFIG_HOME/go-vte/config.toml
+# (usually ~/.config/go-vte/config.toml). Any omitted key uses its default
+# (the values shown below). A missing file is fine; a bad value logs a warning
+# and falls back to the default for that key.
+
+# Font size in logical pixels (the font itself is embedded, not configurable).
+font_size = 16
+
+# Theme — colors are quoted "#rrggbb".
+foreground           = "#424242"
+background           = "#f0eee6"
+cursor               = "#20bbfc"
+selection_foreground = "#f0eee6"  # reserved (text selection not implemented yet)
+selection_background = "#424242"  # reserved
+
+# 16-color ANSI palette (indices 0..15).
+color0  = "#d1d1d1"  # black
+color1  = "#b81a6b"  # red
+color2  = "#1e763c"  # green
+color3  = "#8d5b00"  # yellow
+color4  = "#015493"  # blue
+color5  = "#75228e"  # magenta
+color6  = "#007474"  # cyan
+color7  = "#424242"  # white
+color8  = "#57606a"  # bright black
+color9  = "#b81a6b"  # bright red
+color10 = "#1e763c"  # bright green
+color11 = "#8d5b00"  # bright yellow
+color12 = "#015493"  # bright blue
+color13 = "#75228e"  # bright magenta
+color14 = "#007474"  # bright cyan
+color15 = "#085157"  # bright white
+
+# block | beam | underline  (only block is drawn for now)
+cursor_style = "block"
+
+# Lines of scrollback history per pane.
+scrollback_lines = 10000
+
+# Fraction of the cell height a Nerd Font icon is scaled to fill.
+icon_fill_ratio = 0.85

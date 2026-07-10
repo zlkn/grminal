@@ -1,14 +1,16 @@
 package app
 
 import (
+	"log"
+
 	"github.com/hajimehoshi/ebiten/v2"
 
+	"github.com/yzolkin/go-vte/internal/config"
 	"github.com/yzolkin/go-vte/internal/pane"
 	"github.com/yzolkin/go-vte/internal/render"
 )
 
 const (
-	fontSize      = 16
 	initialWidth  = 900
 	initialHeight = 600
 )
@@ -18,6 +20,7 @@ const (
 // layout package is ready, but multiple live PTYs per tab is a follow-up.
 type game struct {
 	app   *App
+	cfg   config.Config
 	r     *render.Renderer
 	panes map[int]*pane.Pane // keyed by tab ID
 	scale float64            // current device scale factor
@@ -28,8 +31,14 @@ type game struct {
 // Run starts the application: it opens a window and runs the terminal until the
 // window is closed.
 func Run() error {
+	cfg, err := config.Load(config.Path())
+	if err != nil {
+		log.Printf("config: %v (using defaults)", err)
+	}
+
 	g := &game{
 		app:   New(),
+		cfg:   cfg,
 		panes: make(map[int]*pane.Pane),
 	}
 	if err := g.setScale(1); err != nil { // real scale is applied in LayoutF
@@ -48,7 +57,7 @@ func (g *game) setScale(s float64) error {
 	if s <= 0 {
 		s = 1
 	}
-	r, err := render.NewRenderer(fontSize * s)
+	r, err := render.NewRenderer(g.cfg, g.cfg.FontSize*s)
 	if err != nil {
 		return err
 	}
@@ -106,7 +115,7 @@ func (g *game) reconcilePanes() {
 		if err != nil {
 			continue
 		}
-		p := pane.NewPane(pt, g.cols, g.rows)
+		p := pane.NewPane(pt, g.cols, g.rows, g.cfg.ScrollbackLines)
 		g.panes[tb.ID] = p
 		go func() { _ = p.Run() }()
 	}
