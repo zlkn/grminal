@@ -1,6 +1,8 @@
 package app
 
 import (
+	"strconv"
+
 	"github.com/hajimehoshi/ebiten/v2"
 
 	"github.com/yzolkin/go-vte/internal/config"
@@ -69,11 +71,28 @@ func (g *game) Update() error {
 	return nil
 }
 
-// Draw paints the active tab's pane full-window.
+// Draw paints the active tab's pane, then the tab bar over the top strip.
 func (g *game) Draw(screen *ebiten.Image) {
 	if p := g.active(); p != nil {
 		g.r.Draw(screen, p.Snapshot())
 	}
+	g.r.DrawTabBar(screen, g.tabLabels(), g.app.ActiveIndex())
+}
+
+// tabLabels builds each tab's bar label: index plus its OSC title (if any).
+func (g *game) tabLabels() []string {
+	tabs := g.app.Tabs()
+	labels := make([]string, len(tabs))
+	for i, tb := range tabs {
+		label := strconv.Itoa(i + 1)
+		if p := g.panes[tb.ID]; p != nil {
+			if title := p.Title(); title != "" {
+				label += " " + title
+			}
+		}
+		labels[i] = label
+	}
+	return labels
 }
 
 // Layout is required by ebiten.Game but superseded by LayoutF below.

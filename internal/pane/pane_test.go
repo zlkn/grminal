@@ -83,6 +83,17 @@ func TestScrollbackCapturesScrolledLines(t *testing.T) {
 	}
 }
 
+func TestPaneTitleFromOSC(t *testing.T) {
+	pty := newFakePTY("\x1b]0;my-title\x07done")
+	p := NewPane(pty, 10, 2, 1000)
+	if err := p.Run(); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got := p.Title(); got != "my-title" {
+		t.Errorf("Title() = %q, want %q", got, "my-title")
+	}
+}
+
 func TestPaneWriteForwardsToPTY(t *testing.T) {
 	pty := newFakePTY("")
 	p := NewPane(pty, 10, 3, 1000)

@@ -50,6 +50,14 @@ func NewPane(pty PTY, cols, rows, scrollbackLines int) *Pane {
 // Scrollback returns the pane's history ring.
 func (p *Pane) Scrollback() *scrollback.Ring { return p.scroll }
 
+// Title returns the pane's current title (set via OSC), safe to call
+// concurrently with Run.
+func (p *Pane) Title() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.grid.Title()
+}
+
 // Grid returns the pane's character grid. It is not safe to read concurrently
 // with Run; use Snapshot for that. Intended for single-threaded/test use.
 func (p *Pane) Grid() *vte.Grid { return p.grid }

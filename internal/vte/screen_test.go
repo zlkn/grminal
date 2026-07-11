@@ -56,6 +56,35 @@ func TestSaveRestoreCursorDEC(t *testing.T) {
 	}
 }
 
+func TestOSCTitle(t *testing.T) {
+	g := NewGrid(10, 2)
+	p := NewParser(g)
+
+	p.Write([]byte("\x1b]0;hello\x07")) // OSC 0, BEL-terminated
+	if got := g.Snapshot().Title; got != "hello" {
+		t.Errorf("title = %q, want %q", got, "hello")
+	}
+	p.Write([]byte("\x1b]2;world\x1b\\")) // OSC 2, ST-terminated
+	if got := g.Snapshot().Title; got != "world" {
+		t.Errorf("title = %q, want %q", got, "world")
+	}
+	// Text after the OSC still renders.
+	p.Write([]byte("hi"))
+	if row(g, 0) != "hi        " {
+		t.Errorf("row0 = %q, want text after OSC", row(g, 0))
+	}
+}
+
+func TestOSCNonTitleIgnored(t *testing.T) {
+	g := NewGrid(10, 2)
+	p := NewParser(g)
+	p.Write([]byte("\x1b]0;init\x07"))
+	p.Write([]byte("\x1b]4;1;rgb:ff/00/00\x07")) // OSC 4 (palette) is not a title
+	if got := g.Snapshot().Title; got != "init" {
+		t.Errorf("title = %q, want unchanged %q", got, "init")
+	}
+}
+
 func TestCursorVisibility(t *testing.T) {
 	g := NewGrid(3, 1)
 	p := NewParser(g)

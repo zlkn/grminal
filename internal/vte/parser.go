@@ -21,9 +21,13 @@ type Parser struct {
 	state    pstate
 	params   [maxParams]int
 	nparams  int
-	priv     byte // CSI private marker: one of < = > ?
-	overflow bool // a param exceeded maxParams; ignore the rest of the sequence
+	priv     byte   // CSI private marker: one of < = > ?
+	overflow bool   // a param exceeded maxParams; ignore the rest of the sequence
+	oscBuf   []byte // accumulates the current OSC string payload
 }
+
+// oscMax caps the OSC payload length to bound memory on malformed input.
+const oscMax = 1024
 
 type pstate uint8
 
@@ -78,7 +82,7 @@ func (p *Parser) Write(b []byte) (int, error) {
 			p.osc(c)
 		case stateOSCEsc:
 			// The byte after ESC inside an OSC terminates it (ST = ESC \).
-			p.state = stateGround
+			p.finishOSC()
 		case stateCharset:
 			p.state = stateGround // swallow the single designator byte
 		}
@@ -111,6 +115,7 @@ func (p *Parser) escape(c byte) {
 		p.beginCSI()
 		p.state = stateCSI
 	case ']':
+		p.oscBuf = p.oscBuf[:0]
 		p.state = stateOSC
 	case '(', ')', '*', '+':
 		p.state = stateCharset
@@ -181,13 +186,32 @@ func (p *Parser) csi(c byte) {
 	}
 }
 
-// osc consumes an OSC string until BEL or the start of an ST (ESC \).
+// osc accumulates an OSC string until BEL or the start of an ST (ESC \).
 func (p *Parser) osc(c byte) {
 	switch c {
 	case 0x07: // BEL
-		p.state = stateGround
+		p.finishOSC()
 	case 0x1b: // ESC, expect '\' next
 		p.state = stateOSCEsc
+	default:
+		if len(p.oscBuf) < oscMax {
+			p.oscBuf = append(p.oscBuf, c)
+		}
+	}
+}
+
+// finishOSC parses the accumulated OSC payload and returns to the ground state.
+// OSC 0 and 2 set the window/tab title; other codes are ignored.
+func (p *Parser) finishOSC() {
+	p.state = stateGround
+	s := p.oscBuf
+	for i := 0; i < len(s); i++ {
+		if s[i] == ';' {
+			if code := string(s[:i]); code == "0" || code == "2" {
+				p.g.setTitle(string(s[i+1:]))
+			}
+			return
+		}
 	}
 }
 

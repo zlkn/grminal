@@ -8,6 +8,7 @@ type Snapshot struct {
 	Cells         []Cell // len == Cols*Rows, row-major copy
 	CurX, CurY    int
 	CursorVisible bool
+	Title         string
 }
 
 // Snapshot returns a deep copy of the grid's current state. Callers may read or
@@ -22,6 +23,7 @@ func (g *Grid) Snapshot() Snapshot {
 		CurX:          g.curX,
 		CurY:          g.curY,
 		CursorVisible: !g.cursorHidden,
+		Title:         g.title,
 	}
 }
 

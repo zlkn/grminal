@@ -24,6 +24,9 @@ type Grid struct {
 	// scrollTop/scrollBot bound the vertical scrolling region (DECSTBM),
 	// defaulting to the whole screen [0, rows-1].
 	scrollTop, scrollBot int
+
+	// title is the window/tab title set via OSC 0/2.
+	title string
 }
 
 // NewGrid returns a cols×rows grid filled with blank cells and the cursor at

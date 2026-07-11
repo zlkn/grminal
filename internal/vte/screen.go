@@ -31,6 +31,12 @@ func (g *Grid) restoreCursor() { g.MoveCursor(g.savedCurX, g.savedCurY) }
 // setCursorVisible toggles cursor visibility (DEC mode 25).
 func (g *Grid) setCursorVisible(v bool) { g.cursorHidden = !v }
 
+// setTitle records the window/tab title (OSC 0/2).
+func (g *Grid) setTitle(s string) { g.title = s }
+
+// Title returns the window/tab title.
+func (g *Grid) Title() string { return g.title }
+
 // --- scroll region and line/char editing -------------------------------------
 
 // rowSlice returns the backing cells of row y.

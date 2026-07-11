@@ -23,8 +23,8 @@ import (
 // verified by running the app, not by unit tests.
 type Renderer struct {
 	face   *text.GoTextFace
-	sf     *sfnt.Font    // same font parsed for glyph geometry (icon scaling)
-	buf    sfnt.Buffer   // scratch for sf lookups (single-goroutine use)
+	sf     *sfnt.Font  // same font parsed for glyph geometry (icon scaling)
+	buf    sfnt.Buffer // scratch for sf lookups (single-goroutine use)
 	icons  map[rune]iconGeom
 	size   float64
 	cellW  float64
@@ -34,8 +34,13 @@ type Renderer struct {
 	palette       [16]color.RGBA
 	iconFillRatio float64
 	cursorStyle   string
+	scale         float64
 
 	padL, padR, padT, padB float64 // inset in physical px
+
+	barH         float64 // reserved tab-bar height in physical px
+	tabUnderline color.RGBA
+	tabMutedFG   color.RGBA
 
 	defaultFG color.RGBA
 	defaultBG color.RGBA
@@ -85,10 +90,14 @@ func NewRenderer(cfg config.Config, scale float64) (*Renderer, error) {
 		palette:       cfg.Palette,
 		iconFillRatio: cfg.IconFillRatio,
 		cursorStyle:   cfg.CursorStyle,
+		scale:         scale,
 		padL:          padPx(cfg.PaddingLeft, scale),
 		padR:          padPx(cfg.PaddingRight, scale),
 		padT:          padPx(cfg.PaddingTop, scale),
 		padB:          padPx(cfg.PaddingBottom, scale),
+		barH:          math.Ceil(cellH * 1.4),
+		tabUnderline:  opaque(cfg.Cursor),
+		tabMutedFG:    cfg.Palette[8],
 		defaultFG:     cfg.Foreground,
 		defaultBG:     cfg.Background,
 		cursor:        cursor,
@@ -110,7 +119,7 @@ func (r *Renderer) CellSize() (w, h float64) { return r.cellW, r.cellH }
 // the padding on each side.
 func (r *Renderer) GridSize(wPx, hPx int) (cols, rows int) {
 	usableW := float64(wPx) - r.padL - r.padR
-	usableH := float64(hPx) - r.padT - r.padB
+	usableH := float64(hPx) - r.padT - r.padB - r.barH
 	cols = int(usableW / r.cellW)
 	rows = int(usableH / r.cellH)
 	if cols < 1 {
@@ -129,7 +138,7 @@ func (r *Renderer) Draw(dst *ebiten.Image, snap vte.Snapshot) {
 
 	for y := 0; y < snap.Rows; y++ {
 		row := snap.Row(y)
-		topY := r.padT + float64(y)*r.cellH
+		topY := r.barH + r.padT + float64(y)*r.cellH
 
 		for _, run := range SplitRuns(row) {
 			fg, bg, hasBG := r.colors(run.Style)
@@ -201,7 +210,7 @@ func (r *Renderer) drawCursor(dst *ebiten.Image, snap vte.Snapshot) {
 		return
 	}
 	x := float32(r.padL + float64(snap.CurX)*r.cellW)
-	y := float32(r.padT + float64(snap.CurY)*r.cellH)
+	y := float32(r.barH + r.padT + float64(snap.CurY)*r.cellH)
 	vector.DrawFilledRect(dst, x, y, float32(r.cellW), float32(r.cellH), r.cursor, false)
 }
 
