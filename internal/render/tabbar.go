@@ -48,7 +48,8 @@ func (r *Renderer) DrawTabBar(dst *ebiten.Image, labels []string, active int) {
 	vector.DrawFilledRect(dst, 0, 0, float32(width), float32(r.barH), r.defaultBG, false)
 	if len(labels) > 1 {
 		sep := float32(math.Max(1, math.Round(r.scale)))
-		vector.DrawFilledRect(dst, 0, float32(r.barH)-sep, float32(width), sep, r.tabMutedFG, false)
+		margin := float32(r.cellW) // small gap at each end
+		vector.DrawFilledRect(dst, margin, float32(r.barH)-sep, float32(width)-2*margin, sep, r.tabMutedFG, false)
 	}
 
 	underline := float32(math.Max(2, math.Round(2*r.scale)))
