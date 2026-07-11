@@ -120,6 +120,16 @@ func (p *Parser) escape(c byte) {
 	case '8': // DECRC - restore cursor
 		p.g.restoreCursor()
 		p.state = stateGround
+	case 'D': // IND - index (line feed)
+		p.g.lineFeed()
+		p.state = stateGround
+	case 'E': // NEL - next line
+		p.g.curX = 0
+		p.g.lineFeed()
+		p.state = stateGround
+	case 'M': // RI - reverse index
+		p.g.reverseIndex()
+		p.state = stateGround
 	case 'c': // RIS - reset to initial state
 		p.g.Clear()
 		p.pen = Style{}
@@ -245,7 +255,31 @@ func (p *Parser) dispatchCSI(c byte) {
 		p.g.eraseLine(p.param(0, 0))
 	case 'm': // SGR - select graphic rendition
 		p.applySGR()
+	case 'r': // DECSTBM - set scroll region
+		p.g.setScrollRegion(oneBased(p.param(0, 1))-1, p.param(1, p.g.rows)-1)
+	case 'L': // IL - insert lines
+		p.g.insertLines(p.count())
+	case 'M': // DL - delete lines
+		p.g.deleteLines(p.count())
+	case '@': // ICH - insert characters
+		p.g.insertChars(p.count())
+	case 'P': // DCH - delete characters
+		p.g.deleteChars(p.count())
+	case 'X': // ECH - erase characters
+		p.g.eraseChars(p.count())
+	case 'S': // SU - scroll up
+		p.g.scrollRangeUp(p.g.scrollTop, p.g.scrollBot, p.count())
+	case 'T': // SD - scroll down
+		p.g.scrollRangeDown(p.g.scrollTop, p.g.scrollBot, p.count())
 	}
+}
+
+// count returns CSI parameter 0 as a positive repeat count (default/0 -> 1).
+func (p *Parser) count() int {
+	if n := p.param(0, 1); n > 0 {
+		return n
+	}
+	return 1
 }
 
 // deviceAttributes answers a DA query. Primary (CSI c) reports a VT102-class

@@ -20,6 +20,10 @@ type Grid struct {
 	alt                  []Cell
 	savedCurX, savedCurY int
 	cursorHidden         bool
+
+	// scrollTop/scrollBot bound the vertical scrolling region (DECSTBM),
+	// defaulting to the whole screen [0, rows-1].
+	scrollTop, scrollBot int
 }
 
 // NewGrid returns a cols×rows grid filled with blank cells and the cursor at
@@ -31,7 +35,7 @@ func NewGrid(cols, rows int) *Grid {
 	if rows < 1 {
 		rows = 1
 	}
-	g := &Grid{cols: cols, rows: rows, cells: make([]Cell, cols*rows)}
+	g := &Grid{cols: cols, rows: rows, cells: make([]Cell, cols*rows), scrollBot: rows - 1}
 	g.fill(0, blank)
 	return g
 }
@@ -105,6 +109,7 @@ func (g *Grid) Resize(cols, rows int) {
 	}
 
 	g.cols, g.rows, g.cells = cols, rows, next
+	g.scrollTop, g.scrollBot = 0, rows-1 // reset the scroll region to full screen
 	// The inactive (alt/primary) buffer is reallocated blank; full-screen apps
 	// redraw on resize, so its stale contents are not worth preserving.
 	if g.alt != nil {
@@ -145,14 +150,16 @@ func (g *Grid) putCell(c Cell) {
 	}
 }
 
-// lineFeed moves the cursor down one row, scrolling up when already on the last
-// row.
+// lineFeed moves the cursor down one row. At the bottom of the scroll region it
+// scrolls the region up instead of moving the cursor.
 func (g *Grid) lineFeed() {
-	if g.curY < g.rows-1 {
-		g.curY++
+	if g.curY == g.scrollBot {
+		g.scrollUp()
 		return
 	}
-	g.scrollUp()
+	if g.curY < g.rows-1 {
+		g.curY++
+	}
 }
 
 // SetScrollHook registers a callback invoked with each row that scrolls off the
@@ -160,17 +167,14 @@ func (g *Grid) lineFeed() {
 // (e.g. the scrollback ring) must copy it.
 func (g *Grid) SetScrollHook(fn func(row []Cell)) { g.onScroll = fn }
 
-// scrollUp shifts every row up by one; the top row is handed to the scroll hook
-// (if any) then discarded, and the bottom row is blanked.
+// scrollUp scrolls the scroll region up by one line. On the primary screen with
+// a top-anchored region, the evicted top line is handed to the scroll hook
+// (scrollback) before being overwritten.
 func (g *Grid) scrollUp() {
-	if g.onScroll != nil {
-		g.onScroll(g.cells[:g.cols])
+	if g.onScroll != nil && g.alt == nil && g.scrollTop == 0 {
+		g.onScroll(g.rowSlice(g.scrollTop))
 	}
-	copy(g.cells, g.cells[g.cols:])
-	bottom := (g.rows - 1) * g.cols
-	for i := bottom; i < len(g.cells); i++ {
-		g.cells[i] = blank
-	}
+	g.scrollRangeUp(g.scrollTop, g.scrollBot, 1)
 }
 
 // tab advances the cursor to the next tab stop, clamped to the last column.
