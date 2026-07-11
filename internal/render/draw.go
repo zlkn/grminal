@@ -95,7 +95,7 @@ func NewRenderer(cfg config.Config, scale float64) (*Renderer, error) {
 		padR:          padPx(cfg.PaddingRight, scale),
 		padT:          padPx(cfg.PaddingTop, scale),
 		padB:          padPx(cfg.PaddingBottom, scale),
-		barH:          math.Ceil(cellH * 1.4),
+		barH:          math.Ceil(cellH * 2.0),
 		tabUnderline:  opaque(cfg.Cursor),
 		tabMutedFG:    cfg.Palette[8],
 		defaultFG:     cfg.Foreground,
