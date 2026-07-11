@@ -35,7 +35,7 @@ color15 = "#085157"  # bright white
 cursor_style = "block"
 
 # Window border/title bar. false = borderless (no title bar).
-window_decorated = true
+window_decorated = false
 
 # Lines of scrollback history per pane.
 scrollback_lines = 10000

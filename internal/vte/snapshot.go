@@ -4,9 +4,10 @@ package vte
 // The renderer consumes a Snapshot rather than the live grid, which both removes
 // the data race with the PTY writer goroutine and makes rendering deterministic.
 type Snapshot struct {
-	Cols, Rows int
-	Cells      []Cell // len == Cols*Rows, row-major copy
-	CurX, CurY int
+	Cols, Rows    int
+	Cells         []Cell // len == Cols*Rows, row-major copy
+	CurX, CurY    int
+	CursorVisible bool
 }
 
 // Snapshot returns a deep copy of the grid's current state. Callers may read or
@@ -15,11 +16,12 @@ func (g *Grid) Snapshot() Snapshot {
 	cells := make([]Cell, len(g.cells))
 	copy(cells, g.cells)
 	return Snapshot{
-		Cols:  g.cols,
-		Rows:  g.rows,
-		Cells: cells,
-		CurX:  g.curX,
-		CurY:  g.curY,
+		Cols:          g.cols,
+		Rows:          g.rows,
+		Cells:         cells,
+		CurX:          g.curX,
+		CurY:          g.curY,
+		CursorVisible: !g.cursorHidden,
 	}
 }
 

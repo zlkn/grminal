@@ -114,6 +114,12 @@ func (p *Parser) escape(c byte) {
 		p.state = stateOSC
 	case '(', ')', '*', '+':
 		p.state = stateCharset
+	case '7': // DECSC - save cursor
+		p.g.saveCursor()
+		p.state = stateGround
+	case '8': // DECRC - restore cursor
+		p.g.restoreCursor()
+		p.state = stateGround
 	case 'c': // RIS - reset to initial state
 		p.g.Clear()
 		p.pen = Style{}
@@ -198,7 +204,24 @@ func (p *Parser) dispatchCSI(c byte) {
 		}
 		return
 	}
+	if p.priv == '?' {
+		switch c {
+		case 'h':
+			p.setPrivateMode(true)
+		case 'l':
+			p.setPrivateMode(false)
+		}
+		return
+	}
 	if p.priv != 0 {
+		return
+	}
+	switch c {
+	case 's': // SCOSC - save cursor
+		p.g.saveCursor()
+		return
+	case 'u': // SCORC - restore cursor
+		p.g.restoreCursor()
 		return
 	}
 	switch c {
@@ -244,6 +267,41 @@ func (p *Parser) deviceStatus() {
 		p.respond("\x1b[0n")
 	case 6:
 		p.respond("\x1b[" + strconv.Itoa(p.g.curY+1) + ";" + strconv.Itoa(p.g.curX+1) + "R")
+	}
+}
+
+// setPrivateMode handles DEC private mode set/reset (CSI ? Pm h / l).
+func (p *Parser) setPrivateMode(on bool) {
+	for i := 0; i < p.nparams; i++ {
+		switch p.params[i] {
+		case 25: // DECTCEM - cursor visibility
+			p.g.setCursorVisible(on)
+		case 47, 1047: // alternate screen buffer
+			p.toggleAlt(on)
+		case 1048: // save/restore cursor
+			if on {
+				p.g.saveCursor()
+			} else {
+				p.g.restoreCursor()
+			}
+		case 1049: // save cursor + alternate screen (clear on enter)
+			if on {
+				p.g.saveCursor()
+				p.g.enterAlt()
+			} else {
+				p.g.exitAlt()
+				p.g.restoreCursor()
+			}
+		}
+	}
+}
+
+// toggleAlt enters or exits the alternate screen buffer.
+func (p *Parser) toggleAlt(on bool) {
+	if on {
+		p.g.enterAlt()
+	} else {
+		p.g.exitAlt()
 	}
 }
 

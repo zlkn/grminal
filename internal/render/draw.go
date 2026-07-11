@@ -195,8 +195,11 @@ func (r *Renderer) iconMetrics(ru rune) iconGeom {
 	return g
 }
 
-// drawCursor overlays a translucent block at the cursor cell.
+// drawCursor overlays a translucent block at the cursor cell, unless hidden.
 func (r *Renderer) drawCursor(dst *ebiten.Image, snap vte.Snapshot) {
+	if !snap.CursorVisible {
+		return
+	}
 	x := float32(r.padL + float64(snap.CurX)*r.cellW)
 	y := float32(r.padT + float64(snap.CurY)*r.cellH)
 	vector.DrawFilledRect(dst, x, y, float32(r.cellW), float32(r.cellH), r.cursor, false)

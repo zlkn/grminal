@@ -14,6 +14,12 @@ type Grid struct {
 	// is a hook (rather than a direct scrollback dependency) so vte stays free of
 	// an import cycle with the scrollback package.
 	onScroll func(row []Cell)
+
+	// alt holds the inactive screen buffer while the alternate screen is active
+	// (nil on the primary screen). savedCurX/Y is the DECSC/1049 cursor save.
+	alt                  []Cell
+	savedCurX, savedCurY int
+	cursorHidden         bool
 }
 
 // NewGrid returns a cols×rows grid filled with blank cells and the cursor at
@@ -99,6 +105,14 @@ func (g *Grid) Resize(cols, rows int) {
 	}
 
 	g.cols, g.rows, g.cells = cols, rows, next
+	// The inactive (alt/primary) buffer is reallocated blank; full-screen apps
+	// redraw on resize, so its stale contents are not worth preserving.
+	if g.alt != nil {
+		g.alt = make([]Cell, cols*rows)
+		for i := range g.alt {
+			g.alt[i] = blank
+		}
+	}
 	g.MoveCursor(g.curX, g.curY) // re-clamp into new bounds
 }
 
