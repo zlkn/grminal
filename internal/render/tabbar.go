@@ -43,10 +43,13 @@ func (r *Renderer) DrawTabBar(dst *ebiten.Image, labels []string, active int) {
 	width := dst.Bounds().Dx()
 	segs := tabSegments(width, len(labels))
 
-	// Clear the strip and draw the baseline separator across the full width.
+	// Clear the strip. The baseline separator is only drawn once there is more
+	// than one tab (a single tab shows just its label, no lines).
 	vector.DrawFilledRect(dst, 0, 0, float32(width), float32(r.barH), r.defaultBG, false)
-	sep := float32(math.Max(1, math.Round(r.scale)))
-	vector.DrawFilledRect(dst, 0, float32(r.barH)-sep, float32(width), sep, r.tabMutedFG, false)
+	if len(labels) > 1 {
+		sep := float32(math.Max(1, math.Round(r.scale)))
+		vector.DrawFilledRect(dst, 0, float32(r.barH)-sep, float32(width), sep, r.tabMutedFG, false)
+	}
 
 	underline := float32(math.Max(2, math.Round(2*r.scale)))
 	labelTop := (r.barH - r.cellH) / 2
