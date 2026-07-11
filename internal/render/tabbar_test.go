@@ -1,6 +1,10 @@
 package render
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/yzolkin/go-vte/internal/config"
+)
 
 func TestTabSegments(t *testing.T) {
 	tests := []struct {
@@ -52,5 +56,23 @@ func TestTabSegmentsSingleFillsWidth(t *testing.T) {
 func TestTabSegmentsZero(t *testing.T) {
 	if segs := tabSegments(80, 0); segs != nil {
 		t.Errorf("tabSegments(80,0) = %v, want nil", segs)
+	}
+}
+
+func TestGridSizeReservesTabBar(t *testing.T) {
+	r, err := NewRenderer(config.Default(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.TabBarHeight() <= 0 {
+		t.Fatalf("TabBarHeight = %v, want positive", r.TabBarHeight())
+	}
+	const h = 600
+	_, cellH := r.CellSize()
+	_, rows := r.GridSize(800, h)
+	// The content rows must fit below the reserved tab bar (default padding 0).
+	if float64(rows)*cellH > float64(h)-r.TabBarHeight() {
+		t.Errorf("rows=%d (%.0fpx) overflow content area %.0fpx (h=%d, bar=%.0f)",
+			rows, float64(rows)*cellH, float64(h)-r.TabBarHeight(), h, r.TabBarHeight())
 	}
 }

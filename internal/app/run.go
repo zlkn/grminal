@@ -79,16 +79,26 @@ func (g *game) Draw(screen *ebiten.Image) {
 	g.r.DrawTabBar(screen, g.tabLabels(), g.app.ActiveIndex())
 }
 
-// tabLabels builds each tab's bar label: index plus its OSC title (if any).
+// tabLabels builds each tab's bar label from the live per-tab OSC titles.
 func (g *game) tabLabels() []string {
 	tabs := g.app.Tabs()
-	labels := make([]string, len(tabs))
+	titles := make([]string, len(tabs))
 	for i, tb := range tabs {
-		label := strconv.Itoa(i + 1)
 		if p := g.panes[tb.ID]; p != nil {
-			if title := p.Title(); title != "" {
-				label += " " + title
-			}
+			titles[i] = p.Title()
+		}
+	}
+	return formatTabLabels(titles)
+}
+
+// formatTabLabels renders each tab's bar label as "<index> <title>" (index only
+// when the title is empty). Pure, so it is unit-tested.
+func formatTabLabels(titles []string) []string {
+	labels := make([]string, len(titles))
+	for i, title := range titles {
+		label := strconv.Itoa(i + 1)
+		if title != "" {
+			label += " " + title
 		}
 		labels[i] = label
 	}
