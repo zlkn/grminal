@@ -9,6 +9,10 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
+// tabUnderlineInset is the fraction of a tab segment left as an empty gap on
+// each end of the active-tab underline.
+const tabUnderlineInset = 0.15
+
 // tabSegments splits width into n as-even-as-possible integer segments that sum
 // exactly to width (cumulative rounding, no gaps). Returns nil for n <= 0.
 func tabSegments(width, n int) []int {
@@ -66,9 +70,11 @@ func (r *Renderer) DrawTabBar(dst *ebiten.Image, labels []string, active int) {
 		op.ColorScale.ScaleWithColor(fg)
 		text.Draw(dst, label, r.face, op)
 
-		// Colored underline under the active tab.
-		if i == active {
-			vector.DrawFilledRect(dst, float32(x), float32(r.barH)-underline, float32(w), underline, r.tabUnderline, false)
+		// Colored underline under the active tab, inset with equal gaps on each
+		// end. Skipped when there is only one tab.
+		if i == active && len(labels) > 1 {
+			inset := float32(float64(w) * tabUnderlineInset)
+			vector.DrawFilledRect(dst, float32(x)+inset, float32(r.barH)-underline, float32(w)-2*inset, underline, r.tabUnderline, false)
 		}
 		x += w
 	}
