@@ -182,6 +182,63 @@ window_decorated = false
 	}
 }
 
+func TestParseBinding(t *testing.T) {
+	ok := []struct {
+		in   string
+		want Binding
+	}{
+		{"ctrl+tab", Binding{Key: "tab", Ctrl: true}},
+		{"ctrl+shift+tab", Binding{Key: "tab", Ctrl: true, Shift: true}},
+		{"CTRL+Shift+T", Binding{Key: "t", Ctrl: true, Shift: true}},
+		{"alt+]", Binding{Key: "]", Alt: true}},
+		{"control+w", Binding{Key: "w", Ctrl: true}},
+		{"1", Binding{Key: "1"}},
+	}
+	for _, tc := range ok {
+		got, err := parseBinding(tc.in)
+		if err != nil {
+			t.Errorf("parseBinding(%q) error: %v", tc.in, err)
+			continue
+		}
+		if got != tc.want {
+			t.Errorf("parseBinding(%q) = %+v, want %+v", tc.in, got, tc.want)
+		}
+	}
+
+	bad := []string{"", "ctrl+", "meta+t", "ctrl+esc", "+"}
+	for _, in := range bad {
+		if _, err := parseBinding(in); err == nil {
+			t.Errorf("parseBinding(%q): expected error", in)
+		}
+	}
+}
+
+func TestLoadKeybindingOverride(t *testing.T) {
+	content := `
+key_next_tab = "ctrl+tab"
+key_prev_tab = "ctrl+shift+tab"
+key_new_tab  = "alt+n"
+`
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if c.Keys.NextTab != (Binding{Key: "tab", Ctrl: true}) {
+		t.Errorf("NextTab = %+v", c.Keys.NextTab)
+	}
+	if c.Keys.NewTab != (Binding{Key: "n", Alt: true}) {
+		t.Errorf("NewTab = %+v", c.Keys.NewTab)
+	}
+	// Unspecified binding keeps its default.
+	if c.Keys.CloseTab != DefaultKeys().CloseTab {
+		t.Errorf("CloseTab = %+v, want default", c.Keys.CloseTab)
+	}
+}
+
 func TestLoadMalformedFallsBack(t *testing.T) {
 	content := `
 font_size = notanumber

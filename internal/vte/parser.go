@@ -98,7 +98,7 @@ func (p *Parser) ground(c byte) {
 	case '\n', 0x0b, 0x0c: // LF, VT, FF all move down
 		p.g.lineFeed()
 	case '\r':
-		p.g.curX = 0
+		p.g.carriageReturn()
 	case '\t':
 		p.g.tab()
 	case 0x08: // BS
@@ -129,7 +129,7 @@ func (p *Parser) escape(c byte) {
 		p.g.lineFeed()
 		p.state = stateGround
 	case 'E': // NEL - next line
-		p.g.curX = 0
+		p.g.carriageReturn()
 		p.g.lineFeed()
 		p.state = stateGround
 	case 'M': // RI - reverse index
@@ -260,7 +260,7 @@ func (p *Parser) dispatchCSI(c byte) {
 	}
 	switch c {
 	case 'H', 'f': // CUP - cursor position (1-based row;col)
-		p.g.MoveCursor(oneBased(p.param(1, 1))-1, oneBased(p.param(0, 1))-1)
+		p.g.cursorTo(oneBased(p.param(1, 1))-1, oneBased(p.param(0, 1))-1)
 	case 'A': // CUU - up
 		p.g.MoveCursor(p.g.curX, p.g.curY-oneBased(p.param(0, 1)))
 	case 'B': // CUD - down
@@ -272,7 +272,7 @@ func (p *Parser) dispatchCSI(c byte) {
 	case 'G', '`': // CHA - cursor horizontal absolute (1-based col)
 		p.g.MoveCursor(oneBased(p.param(0, 1))-1, p.g.curY)
 	case 'd': // VPA - vertical position absolute (1-based row)
-		p.g.MoveCursor(p.g.curX, oneBased(p.param(0, 1))-1)
+		p.g.cursorTo(p.g.curX, oneBased(p.param(0, 1))-1)
 	case 'J': // ED - erase in display
 		p.g.eraseDisplay(p.param(0, 0))
 	case 'K': // EL - erase in line
@@ -332,8 +332,22 @@ func (p *Parser) deviceStatus() {
 func (p *Parser) setPrivateMode(on bool) {
 	for i := 0; i < p.nparams; i++ {
 		switch p.params[i] {
+		case 1: // DECCKM - application cursor keys
+			p.g.setAppCursorKeys(on)
+		case 6: // DECOM - origin mode
+			p.g.setOriginMode(on)
+		case 7: // DECAWM - autowrap mode
+			p.g.setAutoWrap(on)
 		case 25: // DECTCEM - cursor visibility
 			p.g.setCursorVisible(on)
+		case 1000: // X11 mouse: report press/release
+			p.g.setMouseMode(mouseX11, on)
+		case 1002: // button-event mouse: + drag
+			p.g.setMouseMode(mouseButton, on)
+		case 1003: // any-event mouse: + all motion
+			p.g.setMouseMode(mouseAny, on)
+		case 1006: // SGR extended mouse encoding
+			p.g.mouseSGR = on
 		case 47, 1047: // alternate screen buffer
 			p.toggleAlt(on)
 		case 1048: // save/restore cursor
@@ -376,6 +390,7 @@ func oneBased(v int) int {
 func (p *Parser) applySGR() {
 	if p.nparams == 0 {
 		p.pen = Style{}
+		p.g.setCurBG(p.pen.BG)
 		return
 	}
 	for i := 0; i < p.nparams; i++ {
@@ -417,6 +432,7 @@ func (p *Parser) applySGR() {
 			p.pen.BG = Color{Kind: ColorIndexed, Idx: uint8(n - 100 + 8)}
 		}
 	}
+	p.g.setCurBG(p.pen.BG) // keep bce background in sync
 }
 
 // extColor parses an extended color sub-sequence starting at params[i] (the 38

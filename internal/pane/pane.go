@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"sync"
+	"sync/atomic"
 
 	"github.com/yzolkin/go-vte/internal/scrollback"
 	"github.com/yzolkin/go-vte/internal/vte"
@@ -29,11 +30,13 @@ var bufPool = sync.Pool{
 // render loop (which reads it). All grid access is serialised by mu; readers
 // take an independent Snapshot rather than touching the live grid.
 type Pane struct {
-	pty    PTY
-	mu     sync.Mutex // guards grid mutation and snapshotting
-	grid   *vte.Grid
-	parser *vte.Parser
-	scroll *scrollback.Ring
+	pty      PTY
+	mu       sync.Mutex // guards grid mutation and snapshotting
+	grid     *vte.Grid
+	parser   *vte.Parser
+	scroll   *scrollback.Ring
+	onChange func()      // optional: called when PTY output mutates the grid
+	exited   atomic.Bool // set when Run returns (shell exited or PTY closed)
 }
 
 // NewPane returns a pane wrapping pty with a fresh cols×rows grid and a
@@ -50,12 +53,35 @@ func NewPane(pty PTY, cols, rows, scrollbackLines int) *Pane {
 // Scrollback returns the pane's history ring.
 func (p *Pane) Scrollback() *scrollback.Ring { return p.scroll }
 
+// SetChangeHook registers a callback invoked (from the PTY drain goroutine)
+// whenever new output mutates the grid. It lets the renderer redraw on demand
+// instead of polling every frame. The hook must be safe to call concurrently.
+func (p *Pane) SetChangeHook(fn func()) { p.onChange = fn }
+
 // Title returns the pane's current title (set via OSC), safe to call
 // concurrently with Run.
 func (p *Pane) Title() string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.grid.Title()
+}
+
+// AppCursorKeys reports whether the focused grid is in application cursor key
+// mode (DECCKM), so the input layer sends arrows as SS3. Safe to call
+// concurrently with Run.
+func (p *Pane) AppCursorKeys() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.grid.AppCursorKeys()
+}
+
+// EncodeMouse returns the PTY bytes for a pointer event under the grid's current
+// mouse-reporting mode, or nil if the event must not be reported. Safe to call
+// concurrently with Run.
+func (p *Pane) EncodeMouse(ev vte.MouseEvent) []byte {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.grid.EncodeMouse(ev)
 }
 
 // Grid returns the pane's character grid. It is not safe to read concurrently
@@ -74,6 +100,7 @@ func (p *Pane) Snapshot() vte.Snapshot {
 // chunk through the parser. Blocking PTY reads happen outside the lock; only the
 // grid mutation is serialised, so a concurrent Snapshot is never starved.
 func (p *Pane) Run() error {
+	defer p.exited.Store(true) // mark dead so the app can close the tab
 	bufp := bufPool.Get().(*[]byte)
 	defer bufPool.Put(bufp)
 	buf := *bufp
@@ -85,6 +112,9 @@ func (p *Pane) Run() error {
 			// Parser.Write never errors and always consumes all input.
 			_, _ = p.parser.Write(buf[:n])
 			p.mu.Unlock()
+			if p.onChange != nil {
+				p.onChange()
+			}
 		}
 		if err != nil {
 			if errors.Is(err, io.EOF) {
@@ -94,6 +124,10 @@ func (p *Pane) Run() error {
 		}
 	}
 }
+
+// Exited reports whether Run has returned (the shell exited or the PTY closed).
+// Safe to call concurrently with Run.
+func (p *Pane) Exited() bool { return p.exited.Load() }
 
 // Write forwards keystrokes to the PTY.
 func (p *Pane) Write(b []byte) (int, error) { return p.pty.Write(b) }

@@ -49,3 +49,11 @@ padding_left   = 40
 padding_right  = 30
 padding_top    = 10
 padding_bottom = 10
+
+# Tab-management hotkeys. A chord is modifiers + a key joined by '+', e.g.
+# "ctrl+shift+t". Modifiers: ctrl (or control), shift, alt (or option). Keys: a
+# single character (letter/digit/bracket) or "tab".
+key_new_tab   = "ctrl+shift+t"
+key_close_tab = "ctrl+shift+w"
+key_next_tab  = "ctrl+tab"
+key_prev_tab  = "ctrl+shift+tab"

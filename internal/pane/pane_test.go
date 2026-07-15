@@ -54,6 +54,17 @@ func TestPaneRunRendersOutput(t *testing.T) {
 	if got := rowText(p, 1); got != "world     " {
 		t.Errorf("row1 = %q, want %q", got, "world     ")
 	}
+	// Draining the PTY (EOF, as after Ctrl+D) marks the pane exited.
+	if !p.Exited() {
+		t.Error("Exited() = false after Run returned on EOF, want true")
+	}
+}
+
+func TestPaneNotExitedBeforeRun(t *testing.T) {
+	p := NewPane(newFakePTY(""), 10, 3, 1000)
+	if p.Exited() {
+		t.Error("Exited() = true before Run, want false")
+	}
 }
 
 func TestScrollbackCapturesScrolledLines(t *testing.T) {

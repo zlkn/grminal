@@ -100,7 +100,7 @@ go build -o bin/go-vte ./cmd/go-vte
 1. Shell prompt renders; typing echoes; `ls`, `vim`, `htop` display correctly
    (colors, cursor movement, clears).
 2. Resize the window → grid reflows, PTY `SIGWINCH` reaches the shell.
-3. Tab hotkeys (`Ctrl+Shift+T/W/[/]`, `Alt+<n>`) switch/create/close tabs.
+3. Tab hotkeys (`Ctrl+Shift+T`/`W` create/close, `Ctrl+Tab`/`Ctrl+Shift+Tab` cycle) switch/create/close tabs.
 4. Splits tile without gaps; click moves focus to the clicked pane.
 5. Scrollback retains lines that scroll off the top.
 6. Sanity: `go vet ./...` and `go test -race ./...` still green.

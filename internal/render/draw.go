@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"image/color"
 	"math"
+	"unicode/utf8"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/text/v2"
@@ -38,9 +39,9 @@ type Renderer struct {
 
 	padL, padR, padT, padB float64 // inset in physical px
 
-	barH         float64 // reserved tab-bar height in physical px
-	tabUnderline color.RGBA
-	tabMutedFG   color.RGBA
+	barH        float64    // reserved tab-bar height in physical px
+	tabActiveBG color.RGBA // filled "selected" pill behind the active tab (darker than bg)
+	tabMutedFG  color.RGBA
 
 	defaultFG color.RGBA
 	defaultBG color.RGBA
@@ -96,7 +97,7 @@ func NewRenderer(cfg config.Config, scale float64) (*Renderer, error) {
 		padT:          padPx(cfg.PaddingTop, scale),
 		padB:          padPx(cfg.PaddingBottom, scale),
 		barH:          math.Ceil(cellH * 2.0),
-		tabUnderline:  opaque(cfg.Cursor),
+		tabActiveBG:   blendRGBA(cfg.Background, cfg.Foreground, tabActiveTint),
 		tabMutedFG:    cfg.Palette[8],
 		defaultFG:     cfg.Foreground,
 		defaultBG:     cfg.Background,
@@ -114,6 +115,19 @@ func padPx(logical int, scale float64) float64 {
 
 // CellSize returns the pixel size of one character cell.
 func (r *Renderer) CellSize() (w, h float64) { return r.cellW, r.cellH }
+
+// CellAt maps a physical-pixel point to the 0-based grid cell under it. ok is
+// false when the point is left of or above the content area (i.e. in the left/
+// top padding or the tab bar), so callers can ignore clicks outside the grid.
+// The returned col/row are not clamped to the grid's width/height.
+func (r *Renderer) CellAt(px, py int) (col, row int, ok bool) {
+	x := float64(px) - r.padL
+	y := float64(py) - r.barH - r.padT
+	if x < 0 || y < 0 {
+		return 0, 0, false
+	}
+	return int(x / r.cellW), int(y / r.cellH), true
+}
 
 // GridSize returns how many whole cells fit in a w×h pixel area, after removing
 // the padding on each side.
@@ -158,14 +172,43 @@ func (r *Renderer) Draw(dst *ebiten.Image, snap vte.Snapshot) {
 				continue
 			}
 
-			op := &text.DrawOptions{}
-			op.GeoM.Translate(float64(xPx), topY)
-			op.ColorScale.ScaleWithColor(fg)
-			text.Draw(dst, run.Text, r.face, op)
+			r.drawRunText(dst, run, topY, fg)
 		}
 	}
 
 	r.drawCursor(dst, snap)
+}
+
+// drawRunText draws a text run one shaped glyph at a time, snapping each glyph
+// cluster to its cell origin. Shaping still runs over the whole run so OpenType
+// ligatures (!=, ->) form, but horizontal placement comes from the cell grid,
+// not the font's advances. A monospace face whose true advance is not a whole
+// number of pixels (cellW is math.Ceil'd) otherwise drifts within the run, so
+// text visibly jumps left/right when a background change (e.g. neovim's
+// cursor-word highlight) splits a row into differently-anchored runs.
+func (r *Renderer) drawRunText(dst *ebiten.Image, run Run, topY float64, fg color.RGBA) {
+	base := r.padL + float64(run.Col)*r.cellW
+	col := 0
+	prevByte := -1
+	for _, g := range text.AppendGlyphs(nil, run.Text, r.face, nil) {
+		// Advance the column counter to this glyph's starting rune. A ligature
+		// cluster spans several runes but yields one glyph anchored at its first
+		// cell; combining glyphs share a start index and stack in one cell.
+		if g.StartIndexInBytes != prevByte {
+			if prevByte >= 0 {
+				col += utf8.RuneCountInString(run.Text[prevByte:g.StartIndexInBytes])
+			}
+			prevByte = g.StartIndexInBytes
+		}
+		if g.Image == nil {
+			continue
+		}
+		gridX := base + float64(col)*r.cellW
+		op := &ebiten.DrawImageOptions{}
+		op.GeoM.Translate(gridX+(g.X-g.OriginX), topY+g.Y)
+		op.ColorScale.ScaleWithColor(fg)
+		dst.DrawImage(g.Image, op)
+	}
 }
 
 // drawIcon draws a single Nerd Font icon scaled to fill the cell height and

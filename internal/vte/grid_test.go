@@ -105,17 +105,17 @@ func TestResizePreservesContent(t *testing.T) {
 		t.Errorf("new cell not blank: (5,2) = %q", got)
 	}
 
-	// Shrinking drops out-of-range cells and clamps the cursor.
-	g.MoveCursor(5, 2)
-	g.Resize(2, 1)
-	if g.Cols() != 2 || g.Rows() != 1 {
-		t.Fatalf("dims after shrink = %dx%d, want 2x1", g.Cols(), g.Rows())
+	// Shrinking keeps content by re-wrapping rather than clipping: the surviving
+	// cells stay reachable and the cursor is clamped into bounds.
+	g.Resize(3, 3)
+	if g.Cols() != 3 || g.Rows() != 3 {
+		t.Fatalf("dims after shrink = %dx%d, want 3x3", g.Cols(), g.Rows())
 	}
 	if got := g.CellAt(1, 0).Rune; got != 'p' {
 		t.Errorf("surviving cell lost on shrink: (1,0) = %q, want 'p'", got)
 	}
-	if cx, cy := g.Cursor(); cx != 1 || cy != 0 {
-		t.Errorf("cursor not clamped on shrink: (%d,%d), want (1,0)", cx, cy)
+	if cx, cy := g.Cursor(); cx < 0 || cx >= 3 || cy < 0 || cy >= 3 {
+		t.Errorf("cursor out of bounds after shrink: (%d,%d)", cx, cy)
 	}
 }
 

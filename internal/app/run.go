@@ -2,12 +2,14 @@ package app
 
 import (
 	"strconv"
+	"sync/atomic"
 
 	"github.com/hajimehoshi/ebiten/v2"
 
 	"github.com/yzolkin/go-vte/internal/config"
 	"github.com/yzolkin/go-vte/internal/pane"
 	"github.com/yzolkin/go-vte/internal/render"
+	"github.com/yzolkin/go-vte/internal/vte"
 )
 
 const (
@@ -26,6 +28,23 @@ type game struct {
 	scale float64            // current device scale factor
 	cols  int
 	rows  int
+
+	// Mouse-reporting state carried across frames: the cell the pointer last sat
+	// in (to detect motion) and the button currently held (for drag reports).
+	mouseCol, mouseRow int
+	mouseBtn           vte.MouseButton
+	mouseHeld          bool
+	// dirty marks that the terminal changed and the offscreen frame must be
+	// re-rendered. It is set by any source of visible change (PTY output, input,
+	// resize, tab reconcile) and cleared when the frame is rebuilt. Written from
+	// the PTY goroutine and the Ebiten loop, hence atomic.
+	dirty atomic.Bool
+	// frame is a persistent offscreen buffer holding the fully-rendered terminal.
+	// We re-render into it only when dirty, but blit it to the screen every frame
+	// (double buffering). This keeps the display correct despite Ebiten's
+	// multi-buffered presentation — a skipped screen write can otherwise present a
+	// stale back buffer, causing ghosting (duplicated rows) in apps like neovim.
+	frame *ebiten.Image
 }
 
 // Run starts the application: it opens a window and runs the terminal until the
@@ -38,6 +57,7 @@ func Run() error {
 		cfg:   cfg,
 		panes: make(map[int]*pane.Pane),
 	}
+	g.app.SetKeys(cfg.Keys)
 	if err := g.setScale(1); err != nil { // real scale is applied in LayoutF
 		return err
 	}
@@ -46,6 +66,11 @@ func Run() error {
 	ebiten.SetWindowTitle("go-vte")
 	ebiten.SetWindowDecorated(cfg.WindowDecorated) // false = borderless (no title bar)
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
+	// Demand-driven rendering: the expensive frame render runs only when the
+	// terminal changed; each frame just blits the persistent offscreen buffer.
+	// The screen need not auto-clear since that blit fully covers it.
+	ebiten.SetScreenClearedEveryFrame(false)
+	g.dirty.Store(true) // paint the first frame
 	return ebiten.RunGame(g)
 }
 
@@ -64,19 +89,69 @@ func (g *game) setScale(s float64) error {
 	return nil
 }
 
-// Update advances one frame: reconcile panes with tabs, then handle input.
+// Update advances one frame: reconcile panes with tabs, close any whose shell
+// has exited (quitting when the last one does), then handle input.
 func (g *game) Update() error {
 	g.reconcilePanes()
+	if g.closeExitedPanes() {
+		return ebiten.Termination
+	}
 	g.handleInput()
 	return nil
 }
 
-// Draw paints the active tab's pane, then the tab bar over the top strip.
-func (g *game) Draw(screen *ebiten.Image) {
-	if p := g.active(); p != nil {
-		g.r.Draw(screen, p.Snapshot())
+// closeExitedPanes closes the tab of a pane whose shell has exited (e.g. after
+// Ctrl+D). It returns true when the last tab's shell has exited, signalling the
+// caller to quit. It acts on at most one tab per call; reconcilePanes tears down
+// the pane on the next tick.
+func (g *game) closeExitedPanes() (quit bool) {
+	for _, tb := range g.app.Tabs() {
+		p := g.panes[tb.ID]
+		if p == nil || !p.Exited() {
+			continue
+		}
+		if g.app.Count() == 1 {
+			return true // last shell exited → close the window
+		}
+		g.app.CloseTab(tb.ID)
+		g.dirty.Store(true)
+		break
 	}
-	g.r.DrawTabBar(screen, g.tabLabels(), g.app.ActiveIndex())
+	return false
+}
+
+// Draw blits the offscreen frame to the screen, re-rendering that frame first
+// only when something changed. Blitting every frame (rather than skipping the
+// screen write) keeps the display correct under Ebiten's multi-buffered
+// presentation; the expensive render work is what the dirty flag gates.
+func (g *game) Draw(screen *ebiten.Image) {
+	g.ensureFrame(screen)
+	if g.dirty.Swap(false) {
+		g.renderFrame()
+	}
+	screen.DrawImage(g.frame, nil)
+}
+
+// ensureFrame (re)allocates the offscreen buffer to match the screen size,
+// forcing a re-render when the size changes.
+func (g *game) ensureFrame(screen *ebiten.Image) {
+	w, h := screen.Bounds().Dx(), screen.Bounds().Dy()
+	if g.frame != nil && g.frame.Bounds().Dx() == w && g.frame.Bounds().Dy() == h {
+		return
+	}
+	if g.frame != nil {
+		g.frame.Deallocate()
+	}
+	g.frame = ebiten.NewImage(w, h)
+	g.dirty.Store(true) // the fresh buffer starts blank and must be painted
+}
+
+// renderFrame paints the active pane and the tab bar into the offscreen frame.
+func (g *game) renderFrame() {
+	if p := g.active(); p != nil {
+		g.r.Draw(g.frame, p.Snapshot())
+	}
+	g.r.DrawTabBar(g.frame, g.tabLabels(), g.app.ActiveIndex())
 }
 
 // tabLabels builds each tab's bar label from the live per-tab OSC titles.
@@ -113,6 +188,7 @@ func (g *game) Layout(_, _ int) (int, int) { return 1, 1 }
 func (g *game) LayoutF(outsideW, outsideH float64) (float64, float64) {
 	if s := ebiten.Monitor().DeviceScaleFactor(); s > 0 && s != g.scale {
 		_ = g.setScale(s)
+		g.dirty.Store(true)
 	}
 	pw, ph := outsideW*g.scale, outsideH*g.scale
 
@@ -122,6 +198,7 @@ func (g *game) LayoutF(outsideW, outsideH float64) (float64, float64) {
 		for _, p := range g.panes {
 			_ = p.Resize(cols, rows)
 		}
+		g.dirty.Store(true)
 	}
 	return pw, ph
 }
@@ -141,8 +218,13 @@ func (g *game) reconcilePanes() {
 			continue
 		}
 		p := pane.NewPane(pt, g.cols, g.rows, g.cfg.ScrollbackLines)
+		p.SetChangeHook(func() { g.dirty.Store(true) }) // redraw on PTY output
 		g.panes[tb.ID] = p
-		go func() { _ = p.Run() }()
+		g.dirty.Store(true)
+		go func() {
+			_ = p.Run()
+			g.dirty.Store(true) // wake the loop so Update closes the dead tab
+		}()
 	}
 
 	live := make(map[int]bool, len(g.app.Tabs()))
@@ -153,6 +235,7 @@ func (g *game) reconcilePanes() {
 		if !live[id] {
 			_ = p.Close()
 			delete(g.panes, id)
+			g.dirty.Store(true)
 		}
 	}
 }

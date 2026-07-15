@@ -21,9 +21,43 @@ type Grid struct {
 	savedCurX, savedCurY int
 	cursorHidden         bool
 
+	// wrapped[y] reports whether row y is a soft-wrap continuation of row y-1
+	// (the line break above it came from autowrap, not a hard newline). It is
+	// the durable record of where logical lines break, used to reflow text when
+	// the grid is resized. altWrapped mirrors it for the inactive buffer.
+	wrapped    []bool // len == rows
+	altWrapped []bool
+
 	// scrollTop/scrollBot bound the vertical scrolling region (DECSTBM),
 	// defaulting to the whole screen [0, rows-1].
 	scrollTop, scrollBot int
+
+	// wrapPending is xterm's do_wrap flag: it is set after a glyph is written to
+	// the last column so the wrap is deferred until the next printable rune
+	// (VT100 autowrap). Without it, writing the rightmost cell would advance the
+	// row immediately, mis-scrolling apps that address the margin (e.g. neovim).
+	wrapPending bool
+	// savedWrap preserves wrapPending across DECSC/DECRC.
+	savedWrap bool
+	// autoWrap is DECAWM (mode ?7). When false, text at the right margin
+	// overwrites the last column instead of wrapping. Defaults to true.
+	autoWrap bool
+	// appCursorKeys is DECCKM (mode ?1). When true (ncurses apps like htop set it
+	// via smkx), the cursor keys must be sent as SS3 (ESC O A) rather than CSI
+	// (ESC [ A); the input layer reads this to pick the encoding.
+	appCursorKeys bool
+	// mouseMode is the active mouse-reporting level (?1000/?1002/?1003) and
+	// mouseSGR is the SGR extended encoding (?1006). The input layer reads these
+	// (via the pane) to decide whether and how to report pointer events.
+	mouseMode mouseMode
+	mouseSGR  bool
+	// originMode is DECOM (mode ?6). When set, CUP/VPA row addressing is relative
+	// to the scroll region top and the cursor is confined to the region.
+	originMode bool
+	// curBG is the current SGR background color, applied to cells cleared by
+	// erase/scroll/insert operations (xterm "background color erase", bce). The
+	// parser keeps it in sync with the pen's background on every SGR.
+	curBG Color
 
 	// title is the window/tab title set via OSC 0/2.
 	title string
@@ -38,7 +72,14 @@ func NewGrid(cols, rows int) *Grid {
 	if rows < 1 {
 		rows = 1
 	}
-	g := &Grid{cols: cols, rows: rows, cells: make([]Cell, cols*rows), scrollBot: rows - 1}
+	g := &Grid{
+		cols:      cols,
+		rows:      rows,
+		cells:     make([]Cell, cols*rows),
+		wrapped:   make([]bool, rows),
+		scrollBot: rows - 1,
+		autoWrap:  true,
+	}
 	g.fill(0, blank)
 	return g
 }
@@ -73,21 +114,81 @@ func (g *Grid) SetCell(x, y int, c Cell) {
 	g.cells[y*g.cols+x] = c
 }
 
-// MoveCursor sets the cursor position, clamping to the grid bounds.
+// MoveCursor sets the cursor position, clamping to the grid bounds. Any explicit
+// cursor movement cancels a pending autowrap (xterm resets do_wrap on move).
 func (g *Grid) MoveCursor(x, y int) {
 	g.curX = clamp(x, 0, g.cols-1)
 	g.curY = clamp(y, 0, g.rows-1)
+	g.wrapPending = false
 }
+
+// carriageReturn moves the cursor to column 0, cancelling a pending autowrap.
+func (g *Grid) carriageReturn() {
+	g.curX = 0
+	g.wrapPending = false
+}
+
+// cursorTo sets the cursor from a CUP/VPA-style 0-based (col, row). Under origin
+// mode (DECOM) the row is relative to the scroll region top and the cursor is
+// confined to the region; otherwise it addresses the whole screen.
+func (g *Grid) cursorTo(x, y int) {
+	if g.originMode {
+		g.curX = clamp(x, 0, g.cols-1)
+		g.curY = clamp(g.scrollTop+y, g.scrollTop, g.scrollBot)
+	} else {
+		g.curX = clamp(x, 0, g.cols-1)
+		g.curY = clamp(y, 0, g.rows-1)
+	}
+	g.wrapPending = false
+}
+
+// setOriginMode toggles DECOM (mode ?6) and homes the cursor to the top-left of
+// the addressable area (the scroll region top under origin mode, else 0,0).
+func (g *Grid) setOriginMode(on bool) {
+	g.originMode = on
+	g.curX = 0
+	if on {
+		g.curY = g.scrollTop
+	} else {
+		g.curY = 0
+	}
+	g.wrapPending = false
+}
+
+// setAutoWrap toggles DECAWM (mode ?7).
+func (g *Grid) setAutoWrap(on bool) { g.autoWrap = on }
+
+// setAppCursorKeys toggles DECCKM (mode ?1).
+func (g *Grid) setAppCursorKeys(on bool) { g.appCursorKeys = on }
+
+// AppCursorKeys reports whether application cursor key mode (DECCKM) is active,
+// so the input layer sends cursor keys as SS3 instead of CSI.
+func (g *Grid) AppCursorKeys() bool { return g.appCursorKeys }
 
 // Clear blanks every cell and returns the cursor to the origin.
 func (g *Grid) Clear() {
 	g.fill(0, blank)
+	g.resetWrapped()
 	g.curX, g.curY = 0, 0
+	g.wrapPending = false
+	g.autoWrap = true
+	g.appCursorKeys = false
+	g.mouseMode = mouseOff
+	g.mouseSGR = false
+	g.originMode = false
+	g.curBG = Color{}
 }
 
-// Resize changes the grid dimensions, preserving overlapping content. Growing
-// fills the new area with blanks; shrinking drops out-of-range cells and clamps
-// the cursor into the new bounds.
+// resetWrapped marks every row as a hard line start (no soft-wrap continuation).
+func (g *Grid) resetWrapped() {
+	for i := range g.wrapped {
+		g.wrapped[i] = false
+	}
+}
+
+// Resize changes the grid dimensions, reflowing the active buffer so that text
+// which soft-wrapped at the old width is re-wrapped—not left broken—at the new
+// one (see reflow). The scroll region resets to the full screen.
 func (g *Grid) Resize(cols, rows int) {
 	if cols < 1 {
 		cols = 1
@@ -99,20 +200,8 @@ func (g *Grid) Resize(cols, rows int) {
 		return
 	}
 
-	next := make([]Cell, cols*rows)
-	for i := range next {
-		next[i] = blank
-	}
-	copyCols := min(cols, g.cols)
-	copyRows := min(rows, g.rows)
-	for y := 0; y < copyRows; y++ {
-		for x := 0; x < copyCols; x++ {
-			next[y*cols+x] = g.cells[y*g.cols+x]
-		}
-	}
+	g.reflow(cols, rows) // sets cells/wrapped/cols/rows/cursor and homes the region
 
-	g.cols, g.rows, g.cells = cols, rows, next
-	g.scrollTop, g.scrollBot = 0, rows-1 // reset the scroll region to full screen
 	// The inactive (alt/primary) buffer is reallocated blank; full-screen apps
 	// redraw on resize, so its stale contents are not worth preserving.
 	if g.alt != nil {
@@ -120,8 +209,8 @@ func (g *Grid) Resize(cols, rows int) {
 		for i := range g.alt {
 			g.alt[i] = blank
 		}
+		g.altWrapped = make([]bool, rows)
 	}
-	g.MoveCursor(g.curX, g.curY) // re-clamp into new bounds
 }
 
 // Dump renders the grid as plain text, one row per line terminated by '\n'.
@@ -142,26 +231,41 @@ func (g *Grid) Dump() string {
 
 const tabWidth = 8
 
-// putCell writes c at the cursor and advances, wrapping to the next line (and
-// scrolling when needed) once the cursor moves past the right edge.
+// putCell writes c at the cursor. It implements VT100 deferred autowrap: writing
+// the last column does not advance the row, it arms wrapPending; the wrap (or
+// clamp, when DECAWM is off) happens on the next printable rune. This keeps the
+// cursor from mis-scrolling when an app fills the rightmost cell (see grid_test).
 func (g *Grid) putCell(c Cell) {
+	if g.wrapPending {
+		g.wrapPending = false
+		if g.autoWrap {
+			g.curX = 0
+			g.lineFeed()
+			g.wrapped[g.curY] = true // this row continues the previous one
+		}
+		// DECAWM off: stay on the last column and overwrite it.
+	}
 	g.cells[g.curY*g.cols+g.curX] = c
-	g.curX++
-	if g.curX >= g.cols {
-		g.curX = 0
-		g.lineFeed()
+	if g.curX >= g.cols-1 {
+		g.wrapPending = true // at the right margin; defer the wrap
+	} else {
+		g.curX++
 	}
 }
 
-// lineFeed moves the cursor down one row. At the bottom of the scroll region it
-// scrolls the region up instead of moving the cursor.
+// lineFeed moves the cursor down one row, preserving the column. At the bottom of
+// the scroll region it scrolls the region up instead. It cancels a pending
+// autowrap so a trailing LF does not double-advance past a margin-filled row.
 func (g *Grid) lineFeed() {
+	g.wrapPending = false
 	if g.curY == g.scrollBot {
 		g.scrollUp()
+		g.wrapped[g.curY] = false // the fresh bottom row starts a hard line
 		return
 	}
 	if g.curY < g.rows-1 {
 		g.curY++
+		g.wrapped[g.curY] = false
 	}
 }
 
@@ -184,10 +288,17 @@ func (g *Grid) scrollUp() {
 func (g *Grid) tab() {
 	next := (g.curX/tabWidth + 1) * tabWidth
 	g.curX = min(next, g.cols-1)
+	g.wrapPending = false
 }
 
-// backspace moves the cursor one column left, stopping at column 0.
+// backspace moves the cursor one column left, stopping at column 0. When an
+// autowrap is pending it just cancels that (leaving the cursor on the last
+// column), matching xterm's do_wrap handling.
 func (g *Grid) backspace() {
+	if g.wrapPending {
+		g.wrapPending = false
+		return
+	}
 	if g.curX > 0 {
 		g.curX--
 	}
@@ -208,6 +319,7 @@ func (g *Grid) eraseLine(mode int) {
 		return
 	}
 	base := g.curY * g.cols
+	blank := g.blankCell()
 	for x := x0; x <= x1; x++ {
 		g.cells[base+x] = blank
 	}
@@ -224,17 +336,20 @@ func (g *Grid) eraseDisplay(mode int) {
 		g.eraseLine(1)
 		g.fillRows(0, g.curY)
 	case 2, 3:
-		g.fill(0, blank)
+		g.fill(0, g.blankCell())
+		g.resetWrapped()
 	}
 }
 
 // fillRows blanks whole rows in [y0, y1).
 func (g *Grid) fillRows(y0, y1 int) {
+	blank := g.blankCell()
 	for y := y0; y < y1; y++ {
 		base := y * g.cols
 		for x := 0; x < g.cols; x++ {
 			g.cells[base+x] = blank
 		}
+		g.wrapped[y] = false
 	}
 }
 
@@ -244,6 +359,14 @@ func (g *Grid) fill(start int, c Cell) {
 		g.cells[i] = c
 	}
 }
+
+// setCurBG records the current SGR background used for background-color erase.
+func (g *Grid) setCurBG(c Color) { g.curBG = c }
+
+// blankCell is the fill used by erase/scroll/insert operations: a space carrying
+// the current background color (bce). With the default background it equals the
+// plain blank cell.
+func (g *Grid) blankCell() Cell { return Cell{Rune: ' ', Style: Style{BG: g.curBG}} }
 
 func clamp(v, lo, hi int) int {
 	if v < lo {

@@ -1,6 +1,10 @@
 package app
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/yzolkin/go-vte/internal/config"
+)
 
 func TestNewAppHasOneActiveTab(t *testing.T) {
 	a := New()
@@ -99,7 +103,7 @@ func TestSwitch(t *testing.T) {
 
 func TestHotkeyNewTab(t *testing.T) {
 	a := New()
-	if !a.HandleKey(Key{Rune: 'T', Ctrl: true, Shift: true}) {
+	if !a.HandleKey(Key{Name: "t", Ctrl: true, Shift: true}) {
 		t.Fatal("Ctrl+Shift+T not consumed")
 	}
 	if a.Count() != 2 {
@@ -110,7 +114,7 @@ func TestHotkeyNewTab(t *testing.T) {
 func TestHotkeyCloseTab(t *testing.T) {
 	a := New()
 	a.NewTab()
-	if !a.HandleKey(Key{Rune: 'W', Ctrl: true, Shift: true}) {
+	if !a.HandleKey(Key{Name: "w", Ctrl: true, Shift: true}) {
 		t.Fatal("Ctrl+Shift+W not consumed")
 	}
 	if a.Count() != 1 {
@@ -118,23 +122,38 @@ func TestHotkeyCloseTab(t *testing.T) {
 	}
 }
 
-func TestHotkeySwitchByDigit(t *testing.T) {
+func TestHotkeyNextTabCtrlTab(t *testing.T) {
 	a := New()
-	a.NewTab()
-	a.NewTab() // active idx 2
-	if !a.HandleKey(Key{Rune: '1', Alt: true}) {
-		t.Fatal("Alt+1 not consumed")
+	a.NewTab() // 2 tabs, active idx 1
+	if !a.HandleKey(Key{Name: "tab", Ctrl: true}) {
+		t.Fatal("Ctrl+Tab not consumed")
+	}
+	if a.ActiveIndex() != 0 {
+		t.Errorf("ActiveIndex = %d, want 0 (wrapped)", a.ActiveIndex())
+	}
+}
+
+func TestHotkeyPrevTabCtrlShiftTab(t *testing.T) {
+	a := New()
+	a.NewTab() // 2 tabs, active idx 1
+	if !a.HandleKey(Key{Name: "tab", Ctrl: true, Shift: true}) {
+		t.Fatal("Ctrl+Shift+Tab not consumed")
 	}
 	if a.ActiveIndex() != 0 {
 		t.Errorf("ActiveIndex = %d, want 0", a.ActiveIndex())
 	}
 }
 
-func TestHotkeyNextTab(t *testing.T) {
+func TestCustomKeybindingViaSetKeys(t *testing.T) {
 	a := New()
+	a.SetKeys(config.Keybindings{NextTab: config.Binding{Key: "l", Alt: true}})
 	a.NewTab() // 2 tabs, active idx 1
-	if !a.HandleKey(Key{Rune: ']', Ctrl: true, Shift: true}) {
-		t.Fatal("Ctrl+Shift+] not consumed")
+	// Old default (Ctrl+Tab) is gone; the custom Alt+L drives Next.
+	if a.HandleKey(Key{Name: "tab", Ctrl: true}) {
+		t.Error("Ctrl+Tab should no longer be bound")
+	}
+	if !a.HandleKey(Key{Name: "l", Alt: true}) {
+		t.Fatal("Alt+L not consumed")
 	}
 	if a.ActiveIndex() != 0 {
 		t.Errorf("ActiveIndex = %d, want 0 (wrapped)", a.ActiveIndex())
@@ -143,7 +162,11 @@ func TestHotkeyNextTab(t *testing.T) {
 
 func TestNonHotkeyNotConsumed(t *testing.T) {
 	a := New()
-	if a.HandleKey(Key{Rune: 'a'}) {
+	if a.HandleKey(Key{Name: "a"}) {
 		t.Error("plain 'a' should not be consumed as a hotkey")
+	}
+	// Plain Tab (no modifiers) is not a hotkey — it must reach the pane.
+	if a.HandleKey(Key{Name: "tab"}) {
+		t.Error("plain Tab should not be consumed as a hotkey")
 	}
 }

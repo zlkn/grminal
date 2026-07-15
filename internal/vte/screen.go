@@ -7,8 +7,11 @@ func (g *Grid) enterAlt() {
 		return
 	}
 	g.alt = g.cells
+	g.altWrapped = g.wrapped
 	g.cells = make([]Cell, g.cols*g.rows)
+	g.wrapped = make([]bool, g.rows)
 	g.fill(0, blank)
+	g.wrapPending = false
 }
 
 // exitAlt restores the primary screen buffer. A no-op on the primary screen.
@@ -18,15 +21,30 @@ func (g *Grid) exitAlt() {
 	}
 	if len(g.alt) == g.cols*g.rows {
 		g.cells = g.alt
+		if len(g.altWrapped) == g.rows {
+			g.wrapped = g.altWrapped
+		} else {
+			g.wrapped = make([]bool, g.rows)
+		}
 	}
 	g.alt = nil
+	g.altWrapped = nil
+	g.wrapPending = false
 }
 
-// saveCursor records the cursor position (DECSC / DEC 1048 / 1049).
-func (g *Grid) saveCursor() { g.savedCurX, g.savedCurY = g.curX, g.curY }
+// saveCursor records the cursor position and pending-wrap state (DECSC / DEC
+// 1048 / 1049).
+func (g *Grid) saveCursor() {
+	g.savedCurX, g.savedCurY = g.curX, g.curY
+	g.savedWrap = g.wrapPending
+}
 
-// restoreCursor moves the cursor back to the saved position (DECRC).
-func (g *Grid) restoreCursor() { g.MoveCursor(g.savedCurX, g.savedCurY) }
+// restoreCursor moves the cursor back to the saved position and pending-wrap
+// state (DECRC). MoveCursor clears the flag, so the saved value is applied after.
+func (g *Grid) restoreCursor() {
+	g.MoveCursor(g.savedCurX, g.savedCurY)
+	g.wrapPending = g.savedWrap
+}
 
 // setCursorVisible toggles cursor visibility (DEC mode 25).
 func (g *Grid) setCursorVisible(v bool) { g.cursorHidden = !v }
@@ -42,9 +60,11 @@ func (g *Grid) Title() string { return g.title }
 // rowSlice returns the backing cells of row y.
 func (g *Grid) rowSlice(y int) []Cell { return g.cells[y*g.cols : (y+1)*g.cols] }
 
-// blankRow clears row y.
+// blankRow clears row y, using the current background (bce) so scrolled-in and
+// inserted lines pick up an active background color.
 func (g *Grid) blankRow(y int) {
 	row := g.rowSlice(y)
+	blank := g.blankCell()
 	for i := range row {
 		row[i] = blank
 	}
@@ -63,7 +83,12 @@ func (g *Grid) setScrollRegion(top, bot int) {
 		top, bot = 0, g.rows-1
 	}
 	g.scrollTop, g.scrollBot = top, bot
+	// DECSTBM homes the cursor, respecting origin mode.
 	g.curX, g.curY = 0, 0
+	if g.originMode {
+		g.curY = g.scrollTop
+	}
+	g.wrapPending = false
 }
 
 // scrollRangeUp scrolls rows [top,bot] up by n, blanking the bottom n rows.
@@ -76,9 +101,11 @@ func (g *Grid) scrollRangeUp(top, bot, n int) {
 	}
 	for y := top; y+n <= bot; y++ {
 		copy(g.rowSlice(y), g.rowSlice(y+n))
+		g.wrapped[y] = g.wrapped[y+n]
 	}
 	for y := bot - n + 1; y <= bot; y++ {
 		g.blankRow(y)
+		g.wrapped[y] = false
 	}
 }
 
@@ -92,9 +119,11 @@ func (g *Grid) scrollRangeDown(top, bot, n int) {
 	}
 	for y := bot; y-n >= top; y-- {
 		copy(g.rowSlice(y), g.rowSlice(y-n))
+		g.wrapped[y] = g.wrapped[y-n]
 	}
 	for y := top; y < top+n; y++ {
 		g.blankRow(y)
+		g.wrapped[y] = false
 	}
 }
 
@@ -136,6 +165,7 @@ func (g *Grid) insertChars(n int) {
 		n = len(row) - x
 	}
 	copy(row[x+n:], row[x:len(row)-n])
+	blank := g.blankCell()
 	for i := x; i < x+n; i++ {
 		row[i] = blank
 	}
@@ -152,6 +182,7 @@ func (g *Grid) deleteChars(n int) {
 		n = len(row) - x
 	}
 	copy(row[x:], row[x+n:])
+	blank := g.blankCell()
 	for i := len(row) - n; i < len(row); i++ {
 		row[i] = blank
 	}
@@ -160,6 +191,7 @@ func (g *Grid) deleteChars(n int) {
 // eraseChars (ECH) blanks n cells from the cursor without moving it.
 func (g *Grid) eraseChars(n int) {
 	row := g.rowSlice(g.curY)
+	blank := g.blankCell()
 	for i := g.curX; i < g.curX+n && i < len(row); i++ {
 		row[i] = blank
 	}

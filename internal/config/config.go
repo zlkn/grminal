@@ -52,6 +52,37 @@ type Config struct {
 
 	// WindowDecorated controls the OS window border/title bar. false = borderless.
 	WindowDecorated bool
+
+	// Keys holds the configurable tab-management hotkeys.
+	Keys Keybindings
+}
+
+// Binding is a parsed key chord: a normalized key token plus modifier flags. The
+// key token is lowercased — a single character ("t", "]", "1") or a named key
+// ("tab"). The zero value (empty Key) matches nothing, disabling the action.
+type Binding struct {
+	Key   string
+	Ctrl  bool
+	Shift bool
+	Alt   bool
+}
+
+// Keybindings maps tab actions to their chords.
+type Keybindings struct {
+	NewTab   Binding
+	CloseTab Binding
+	NextTab  Binding
+	PrevTab  Binding
+}
+
+// DefaultKeys returns the built-in hotkeys.
+func DefaultKeys() Keybindings {
+	return Keybindings{
+		NewTab:   Binding{Key: "t", Ctrl: true, Shift: true},
+		CloseTab: Binding{Key: "w", Ctrl: true, Shift: true},
+		NextTab:  Binding{Key: "tab", Ctrl: true},
+		PrevTab:  Binding{Key: "tab", Ctrl: true, Shift: true},
+	}
 }
 
 // Default returns the built-in configuration (the current light theme).
@@ -73,6 +104,7 @@ func Default() Config {
 		ScrollbackLines: 10000,
 		IconFillRatio:   0.85,
 		WindowDecorated: true,
+		Keys:            DefaultKeys(),
 	}
 }
 
@@ -163,6 +195,14 @@ func (c *Config) set(key, val string) error {
 		return setCursorStyle(&c.CursorStyle, val)
 	case key == "window_decorated":
 		return setBool(&c.WindowDecorated, val)
+	case key == "key_new_tab":
+		return setBinding(&c.Keys.NewTab, val)
+	case key == "key_close_tab":
+		return setBinding(&c.Keys.CloseTab, val)
+	case key == "key_next_tab":
+		return setBinding(&c.Keys.NextTab, val)
+	case key == "key_prev_tab":
+		return setBinding(&c.Keys.PrevTab, val)
 	case key == "foreground":
 		return setColor(&c.Foreground, val)
 	case key == "background":
@@ -218,6 +258,47 @@ func setColor(dst *color.RGBA, val string) error {
 	}
 	*dst = c
 	return nil
+}
+
+func setBinding(dst *Binding, val string) error {
+	b, err := parseBinding(val)
+	if err != nil {
+		return err
+	}
+	*dst = b
+	return nil
+}
+
+// parseBinding parses a chord like "ctrl+shift+tab" into a Binding. The last '+'
+// separated token is the key; the rest are modifiers (ctrl/control, shift,
+// alt/option). Tokens are case-insensitive.
+func parseBinding(s string) (Binding, error) {
+	var b Binding
+	parts := strings.Split(strings.ToLower(strings.TrimSpace(s)), "+")
+	for i, p := range parts {
+		p = strings.TrimSpace(p)
+		if i < len(parts)-1 {
+			switch p {
+			case "ctrl", "control":
+				b.Ctrl = true
+			case "shift":
+				b.Shift = true
+			case "alt", "option":
+				b.Alt = true
+			default:
+				return Binding{}, fmt.Errorf("unknown modifier %q in keybinding %q", p, s)
+			}
+			continue
+		}
+		if p != "tab" && len(p) != 1 {
+			return Binding{}, fmt.Errorf("unknown key %q in keybinding %q", p, s)
+		}
+		b.Key = p
+	}
+	if b.Key == "" {
+		return Binding{}, fmt.Errorf("empty keybinding %q", s)
+	}
+	return b, nil
 }
 
 func setCursorStyle(dst *string, val string) error {

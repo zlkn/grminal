@@ -1,6 +1,6 @@
 package app
 
-import "unicode"
+import "github.com/yzolkin/go-vte/internal/config"
 
 // Tab is a single terminal tab. It will own a LayoutManager and its panes; for
 // now it carries just an identity so the tab-management logic can be tested in
@@ -18,15 +18,19 @@ type App struct {
 	tabs   []*Tab
 	active int
 	nextID int
+	keys   config.Keybindings
 }
 
-// New returns an app with a single active tab.
+// New returns an app with a single active tab and the built-in keybindings.
 func New() *App {
-	a := &App{}
+	a := &App{keys: config.DefaultKeys()}
 	a.NewTab()
 	a.active = 0
 	return a
 }
+
+// SetKeys replaces the tab-management hotkeys (e.g. from the user config).
+func (a *App) SetKeys(k config.Keybindings) { a.keys = k }
 
 // Count returns the number of tabs.
 func (a *App) Count() int { return len(a.tabs) }
@@ -92,33 +96,38 @@ func (a *App) Switch(i int) bool {
 }
 
 // Key is an injected keyboard event, decoupled from any input backend so the
-// hotkey logic is testable.
+// hotkey logic is testable. Name is the normalized key token (lowercase single
+// char like "t"/"]"/"1", or a named key like "tab").
 type Key struct {
-	Rune             rune
+	Name             string
 	Ctrl, Shift, Alt bool
 }
 
 // HandleKey applies a global hotkey and reports whether it was consumed. Keys
 // that are not hotkeys return false so the caller can forward them to the
-// focused pane.
+// focused pane. Tab actions come from the configurable bindings.
 func (a *App) HandleKey(k Key) bool {
-	r := unicode.ToLower(k.Rune)
 	switch {
-	case k.Ctrl && k.Shift && r == 't':
+	case matches(a.keys.NewTab, k):
 		a.NewTab()
 		return true
-	case k.Ctrl && k.Shift && r == 'w':
+	case matches(a.keys.CloseTab, k):
 		a.CloseTab(a.Active().ID)
 		return true
-	case k.Ctrl && k.Shift && r == ']':
+	case matches(a.keys.NextTab, k):
 		a.Next()
 		return true
-	case k.Ctrl && k.Shift && r == '[':
+	case matches(a.keys.PrevTab, k):
 		a.Prev()
-		return true
-	case k.Alt && r >= '1' && r <= '9':
-		a.Switch(int(r - '1'))
 		return true
 	}
 	return false
+}
+
+// matches reports whether key k satisfies binding b. An empty binding (no key)
+// matches nothing.
+func matches(b config.Binding, k Key) bool {
+	return b.Key != "" &&
+		b.Key == k.Name &&
+		b.Ctrl == k.Ctrl && b.Shift == k.Shift && b.Alt == k.Alt
 }
