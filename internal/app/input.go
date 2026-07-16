@@ -44,8 +44,10 @@ func (g *game) handleInput() {
 	switch {
 	case len(buf) > 0:
 		// A fresh press this frame: send it and arm autorepeat on the physical
-		// key that produced it, so holding re-sends the same bytes.
+		// key that produced it, so holding re-sends the same bytes. Typing also
+		// snaps the view back to the live screen.
 		g.repeat.arm(primaryPressedKey(), buf)
+		g.scrollOff, g.scrollAccum = 0, 0
 		_, _ = p.Write(buf)
 		g.dirty.Store(true) // echo/response will arrive; ensure a redraw
 	default:
@@ -194,13 +196,42 @@ func (g *game) handleMouse(p *pane.Pane) {
 		send(vte.MouseEvent{Button: btn, Motion: true})
 	}
 
-	// Wheel: positive dy scrolls up.
+	// Wheel: positive dy scrolls up. When the app owns the mouse, forward the
+	// event as a report; otherwise (plain shell, primary screen) scroll local
+	// scrollback history instead.
 	if _, dy := ebiten.Wheel(); dy != 0 && inGrid {
-		btn := vte.MouseWheelDown
-		if dy > 0 {
-			btn = vte.MouseWheelUp
+		switch {
+		case p.MouseEnabled():
+			btn := vte.MouseWheelDown
+			if dy > 0 {
+				btn = vte.MouseWheelUp
+			}
+			send(vte.MouseEvent{Button: btn})
+		case !p.OnAltScreen():
+			g.scrollHistory(p, dy)
 		}
-		send(vte.MouseEvent{Button: btn})
+	}
+}
+
+// wheelScrollLines is how many scrollback lines one wheel notch moves the view.
+const wheelScrollLines = 3
+
+// scrollHistory moves the scrollback view by the wheel delta dy (positive = up =
+// further into history), accumulating fractional trackpad deltas into whole
+// notches and clamping to the available history. It marks the frame dirty when
+// the offset actually changes.
+func (g *game) scrollHistory(p *pane.Pane, dy float64) {
+	g.scrollAccum += dy
+	notches := int(g.scrollAccum)
+	if notches == 0 {
+		return
+	}
+	g.scrollAccum -= float64(notches)
+
+	off := clampInt(g.scrollOff+notches*wheelScrollLines, 0, p.ScrollbackLen())
+	if off != g.scrollOff {
+		g.scrollOff = off
+		g.dirty.Store(true)
 	}
 }
 

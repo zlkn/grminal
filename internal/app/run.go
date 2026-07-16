@@ -47,6 +47,12 @@ type game struct {
 	altNumDelay int
 	showTabNums bool
 
+	// Scrollback view: scrollOff is how many lines the view is scrolled up from
+	// the live bottom (0 = live). scrollAccum accumulates fractional wheel deltas
+	// (trackpads) into whole notches. Both live on the Ebiten goroutine.
+	scrollOff   int
+	scrollAccum float64
+
 	// dirty marks that the terminal changed and the offscreen frame must be
 	// re-rendered. It is set by any source of visible change (PTY output, input,
 	// resize, tab reconcile) and cleared when the frame is rebuilt. Written from
@@ -178,7 +184,7 @@ func (g *game) ensureFrame(screen *ebiten.Image) {
 // renderFrame paints the active pane and the tab bar into the offscreen frame.
 func (g *game) renderFrame() {
 	if p := g.active(); p != nil {
-		g.r.Draw(g.frame, p.Snapshot())
+		g.r.Draw(g.frame, p.SnapshotScrolled(g.scrollOff))
 	}
 	g.r.DrawTabBar(g.frame, g.tabLabels(), g.app.ActiveIndex())
 }

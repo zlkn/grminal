@@ -32,6 +32,11 @@ func (g *Grid) exitAlt() {
 	g.wrapPending = false
 }
 
+// OnAltScreen reports whether the alternate screen is active. Full-screen apps
+// (vim, htop) run there and manage their own scrolling, so local scrollback
+// history does not apply; the input layer reads this to gate wheel scrolling.
+func (g *Grid) OnAltScreen() bool { return g.alt != nil }
+
 // saveCursor records the cursor position and pending-wrap state (DECSC / DEC
 // 1048 / 1049).
 func (g *Grid) saveCursor() {

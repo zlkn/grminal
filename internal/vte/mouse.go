@@ -47,6 +47,11 @@ func (g *Grid) setMouseMode(m mouseMode, on bool) {
 	}
 }
 
+// MouseEnabled reports whether the app has turned on any mouse-reporting mode,
+// i.e. it owns the wheel. The input layer reads this (via the pane) to decide
+// whether the wheel scrolls local scrollback or is forwarded to the child.
+func (g *Grid) MouseEnabled() bool { return g.mouseMode != mouseOff }
+
 // EncodeMouse returns the bytes to send to the PTY for ev under the grid's
 // current mouse mode, or nil when the event must not be reported (reporting
 // off, or a motion event the active mode does not track).

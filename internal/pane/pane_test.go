@@ -94,6 +94,47 @@ func TestScrollbackCapturesScrolledLines(t *testing.T) {
 	}
 }
 
+func TestSnapshotScrolled(t *testing.T) {
+	// 2-row grid; L0/L1 scroll into history, L2/L3 remain on the live screen.
+	pty := newFakePTY("L0\r\nL1\r\nL2\r\nL3")
+	p := NewPane(pty, 5, 2, 1000)
+	if err := p.Run(); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	snapRow := func(s vte.Snapshot, y int) string {
+		rs := make([]rune, 0, s.Cols)
+		for _, c := range s.Row(y) {
+			rs = append(rs, c.Rune)
+		}
+		return string(rs)
+	}
+
+	// offset 0: the live screen, cursor visible.
+	live := p.SnapshotScrolled(0)
+	if snapRow(live, 0) != "L2   " || snapRow(live, 1) != "L3   " {
+		t.Errorf("offset 0 = %q/%q, want L2/L3", snapRow(live, 0), snapRow(live, 1))
+	}
+	if !live.CursorVisible {
+		t.Error("offset 0 should keep the cursor visible")
+	}
+
+	// offset 1: newest history line on top, live row below it, cursor hidden.
+	up := p.SnapshotScrolled(1)
+	if snapRow(up, 0) != "L1   " || snapRow(up, 1) != "L2   " {
+		t.Errorf("offset 1 = %q/%q, want L1/L2", snapRow(up, 0), snapRow(up, 1))
+	}
+	if up.CursorVisible {
+		t.Error("scrolled-back view should hide the cursor")
+	}
+
+	// offset beyond history clamps to the two available lines (L0/L1).
+	max := p.SnapshotScrolled(99)
+	if snapRow(max, 0) != "L0   " || snapRow(max, 1) != "L1   " {
+		t.Errorf("clamped offset = %q/%q, want L0/L1", snapRow(max, 0), snapRow(max, 1))
+	}
+}
+
 func TestPaneTitleFromOSC(t *testing.T) {
 	pty := newFakePTY("\x1b]0;my-title\x07done")
 	p := NewPane(pty, 10, 2, 1000)

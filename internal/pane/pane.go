@@ -96,6 +96,56 @@ func (p *Pane) Snapshot() vte.Snapshot {
 	return p.grid.Snapshot()
 }
 
+// MouseEnabled reports whether the app has enabled mouse reporting (so it owns
+// the wheel). Safe to call concurrently with Run.
+func (p *Pane) MouseEnabled() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.grid.MouseEnabled()
+}
+
+// OnAltScreen reports whether the alternate screen is active (no scrollback
+// history applies). Safe to call concurrently with Run.
+func (p *Pane) OnAltScreen() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.grid.OnAltScreen()
+}
+
+// ScrollbackLen returns the number of history lines currently available to scroll
+// through. Safe to call concurrently with Run.
+func (p *Pane) ScrollbackLen() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.scroll.Len()
+}
+
+// SnapshotScrolled returns a snapshot of the view scrolled offset lines up into
+// scrollback history (0 = the live screen). On the alternate screen or a
+// non-positive offset it is identical to Snapshot. Safe to call concurrently
+// with Run.
+func (p *Pane) SnapshotScrolled(offset int) vte.Snapshot {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if offset <= 0 || p.grid.OnAltScreen() {
+		return p.grid.Snapshot()
+	}
+	if offset > p.scroll.Len() {
+		offset = p.scroll.Len()
+	}
+	// Copy the last offset history rows while holding the lock — Ring.At aliases
+	// internal storage that a concurrent Push would overwrite.
+	history := make([][]vte.Cell, offset)
+	base := p.scroll.Len() - offset
+	for i := 0; i < offset; i++ {
+		src := p.scroll.At(base + i)
+		row := make([]vte.Cell, len(src))
+		copy(row, src)
+		history[i] = row
+	}
+	return vte.ScrolledSnapshot(history, p.grid.Snapshot(), offset)
+}
+
 // Run drains the PTY into the grid until EOF (or a read error), feeding each
 // chunk through the parser. Blocking PTY reads happen outside the lock; only the
 // grid mutation is serialised, so a concurrent Snapshot is never starved.
