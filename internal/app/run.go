@@ -40,6 +40,13 @@ type game struct {
 	repeat                      keyRepeat
 	repeatDelay, repeatInterval int
 
+	// Tab-number overlay: the leading "1 ", "2 " index is shown in the tab bar
+	// only while Alt has been held for at least altNumDelay ticks. altHeld counts
+	// consecutive ticks Alt is down; showTabNums is the current latched state.
+	altHeld     int
+	altNumDelay int
+	showTabNums bool
+
 	// dirty marks that the terminal changed and the offscreen frame must be
 	// re-rendered. It is set by any source of visible change (PTY output, input,
 	// resize, tab reconcile) and cleared when the frame is rebuilt. Written from
@@ -69,6 +76,7 @@ func Run() error {
 	if g.repeatInterval < 1 {
 		g.repeatInterval = 1
 	}
+	g.altNumDelay = msToTicks(500)        // reveal tab numbers after holding Alt 500ms
 	if err := g.setScale(1); err != nil { // real scale is applied in LayoutF
 		return err
 	}
@@ -116,6 +124,7 @@ func (g *game) Update() error {
 	if g.closeExitedPanes() {
 		return ebiten.Termination
 	}
+	g.updateTabNumbers()
 	g.handleInput()
 	return nil
 }
@@ -174,6 +183,22 @@ func (g *game) renderFrame() {
 	g.r.DrawTabBar(g.frame, g.tabLabels(), g.app.ActiveIndex())
 }
 
+// updateTabNumbers latches whether tab numbers should be shown: only while Alt
+// has been held continuously for at least altNumDelay ticks. It flips dirty when
+// the state changes so the tab bar repaints under demand-driven rendering.
+func (g *game) updateTabNumbers() {
+	if ebiten.IsKeyPressed(ebiten.KeyAlt) {
+		g.altHeld++
+	} else {
+		g.altHeld = 0
+	}
+	show := g.altNumDelay > 0 && g.altHeld >= g.altNumDelay
+	if show != g.showTabNums {
+		g.showTabNums = show
+		g.dirty.Store(true)
+	}
+}
+
 // tabLabels builds each tab's bar label from the live per-tab OSC titles.
 func (g *game) tabLabels() []string {
 	tabs := g.app.Tabs()
@@ -183,19 +208,25 @@ func (g *game) tabLabels() []string {
 			titles[i] = p.Title()
 		}
 	}
-	return formatTabLabels(titles)
+	return formatTabLabels(titles, g.showTabNums)
 }
 
-// formatTabLabels renders each tab's bar label as "<index> <title>" (index only
-// when the title is empty). Pure, so it is unit-tested.
-func formatTabLabels(titles []string) []string {
+// formatTabLabels renders each tab's bar label. The leading "<index> " is shown
+// only when showNumbers is set (Alt held long enough); otherwise just the title.
+// A tab with no title always falls back to its number so it is never blank. Pure,
+// so it is unit-tested.
+func formatTabLabels(titles []string, showNumbers bool) []string {
 	labels := make([]string, len(titles))
 	for i, title := range titles {
-		label := strconv.Itoa(i + 1)
-		if title != "" {
-			label += " " + title
+		num := strconv.Itoa(i + 1)
+		switch {
+		case title == "":
+			labels[i] = num // no title: number is the only usable label
+		case showNumbers:
+			labels[i] = num + " " + title
+		default:
+			labels[i] = title
 		}
-		labels[i] = label
 	}
 	return labels
 }
