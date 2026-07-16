@@ -34,6 +34,12 @@ type game struct {
 	mouseCol, mouseRow int
 	mouseBtn           vte.MouseButton
 	mouseHeld          bool
+
+	// Key autorepeat state and its timing in ticks (derived from config ms at
+	// startup). Ebiten reports only press edges, so we re-emit held keys here.
+	repeat                      keyRepeat
+	repeatDelay, repeatInterval int
+
 	// dirty marks that the terminal changed and the offscreen frame must be
 	// re-rendered. It is set by any source of visible change (PTY output, input,
 	// resize, tab reconcile) and cleared when the frame is rebuilt. Written from
@@ -58,6 +64,11 @@ func Run() error {
 		panes: make(map[int]*pane.Pane),
 	}
 	g.app.SetKeys(cfg.Keys)
+	g.repeatDelay = msToTicks(cfg.KeyRepeatDelayMs)
+	g.repeatInterval = msToTicks(cfg.KeyRepeatIntervalMs)
+	if g.repeatInterval < 1 {
+		g.repeatInterval = 1
+	}
 	if err := g.setScale(1); err != nil { // real scale is applied in LayoutF
 		return err
 	}
@@ -72,6 +83,15 @@ func Run() error {
 	ebiten.SetScreenClearedEveryFrame(false)
 	g.dirty.Store(true) // paint the first frame
 	return ebiten.RunGame(g)
+}
+
+// msToTicks converts a millisecond duration to Ebiten update ticks at the
+// current TPS. A non-positive input yields 0 (which disables autorepeat).
+func msToTicks(ms int) int {
+	if ms <= 0 {
+		return 0
+	}
+	return ms * ebiten.TPS() / 1000
 }
 
 // setScale (re)builds the renderer for a device scale factor so glyphs are

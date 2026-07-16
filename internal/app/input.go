@@ -41,12 +41,103 @@ func (g *game) handleInput() {
 	}
 	buf = appendSpecialKeys(buf, ctrl, p.AppCursorKeys())
 
-	if len(buf) > 0 {
+	switch {
+	case len(buf) > 0:
+		// A fresh press this frame: send it and arm autorepeat on the physical
+		// key that produced it, so holding re-sends the same bytes.
+		g.repeat.arm(primaryPressedKey(), buf)
 		_, _ = p.Write(buf)
 		g.dirty.Store(true) // echo/response will arrive; ensure a redraw
+	default:
+		// No fresh press: re-emit the armed key's bytes if it is still held past
+		// the delay. Ebiten does not surface OS autorepeat, so we synthesize it.
+		if rep := g.repeat.repeatBytes(g.repeatDelay, g.repeatInterval); rep != nil {
+			_, _ = p.Write(rep)
+			g.dirty.Store(true)
+		}
 	}
 
 	g.handleMouse(p)
+}
+
+// keyNone is the sentinel for "no key" in keyRepeat.
+const keyNone = ebiten.Key(-1)
+
+// keyRepeat holds the state needed to synthesize OS-style key autorepeat: the
+// physical key currently held and the exact bytes to re-emit for it.
+type keyRepeat struct {
+	key     ebiten.Key
+	armed   bool
+	payload []byte
+}
+
+// arm starts (or restarts) autorepeat for key with the given payload. A keyNone
+// key disarms — the fresh input had no repeatable physical key behind it.
+func (r *keyRepeat) arm(key ebiten.Key, payload []byte) {
+	if key == keyNone {
+		r.armed = false
+		return
+	}
+	r.key = key
+	r.payload = append(r.payload[:0], payload...)
+	r.armed = true
+}
+
+// repeatBytes returns the payload to re-send this tick, or nil. It fires once the
+// armed key has been held past delay, then every interval ticks, and disarms as
+// soon as the key is released. delay <= 0 disables autorepeat.
+func (r *keyRepeat) repeatBytes(delay, interval int) []byte {
+	if !r.armed {
+		return nil
+	}
+	d := inpututil.KeyPressDuration(r.key)
+	if d == 0 { // key released
+		r.armed = false
+		return nil
+	}
+	if shouldRepeat(d, delay, interval) {
+		return r.payload
+	}
+	return nil
+}
+
+// shouldRepeat reports whether a key held for d ticks emits a repeat this tick.
+// The first repeat lands at delay ticks, then every interval ticks after. A
+// non-positive delay disables repeat; interval is clamped to at least one tick.
+func shouldRepeat(d, delay, interval int) bool {
+	if delay <= 0 || d < delay {
+		return false
+	}
+	if interval < 1 {
+		interval = 1
+	}
+	return (d-delay)%interval == 0
+}
+
+// primaryPressedKey returns the last non-modifier key pressed this frame, i.e.
+// the one that should drive autorepeat, or keyNone if none qualifies.
+func primaryPressedKey() ebiten.Key {
+	key := keyNone
+	for _, k := range inpututil.AppendJustPressedKeys(nil) {
+		if isModifierKey(k) {
+			continue
+		}
+		key = k
+	}
+	return key
+}
+
+// isModifierKey reports whether k is a bare modifier (Ctrl/Shift/Alt/Meta), which
+// never drives autorepeat on its own.
+func isModifierKey(k ebiten.Key) bool {
+	switch k {
+	case ebiten.KeyControl, ebiten.KeyControlLeft, ebiten.KeyControlRight,
+		ebiten.KeyShift, ebiten.KeyShiftLeft, ebiten.KeyShiftRight,
+		ebiten.KeyAlt, ebiten.KeyAltLeft, ebiten.KeyAltRight,
+		ebiten.KeyMeta, ebiten.KeyMetaLeft, ebiten.KeyMetaRight:
+		return true
+	}
+	return false
 }
 
 // handleMouse forwards pointer events (button press/release, drag, wheel) to the

@@ -43,6 +43,12 @@ type Config struct {
 	ScrollbackLines int
 	IconFillRatio   float64
 
+	// Key autorepeat. Holding a key re-sends it after KeyRepeatDelayMs, then
+	// every KeyRepeatIntervalMs. A delay <= 0 disables autorepeat. Ebiten does
+	// not surface OS autorepeat, so the terminal implements it itself.
+	KeyRepeatDelayMs    int
+	KeyRepeatIntervalMs int
+
 	// Padding is the inset in logical pixels on each side of the terminal
 	// content (scaled by the display device scale at render time).
 	PaddingTop    int
@@ -100,11 +106,13 @@ func Default() Config {
 			rgb(0x57, 0x60, 0x6a), rgb(0xb8, 0x1a, 0x6b), rgb(0x1e, 0x76, 0x3c), rgb(0x8d, 0x5b, 0x00),
 			rgb(0x01, 0x54, 0x93), rgb(0x75, 0x22, 0x8e), rgb(0x00, 0x74, 0x74), rgb(0x08, 0x51, 0x57),
 		},
-		CursorStyle:     "block",
-		ScrollbackLines: 10000,
-		IconFillRatio:   0.85,
-		WindowDecorated: true,
-		Keys:            DefaultKeys(),
+		CursorStyle:         "block",
+		ScrollbackLines:     10000,
+		IconFillRatio:       0.85,
+		KeyRepeatDelayMs:    500,
+		KeyRepeatIntervalMs: 30,
+		WindowDecorated:     true,
+		Keys:                DefaultKeys(),
 	}
 }
 
@@ -183,6 +191,10 @@ func (c *Config) set(key, val string) error {
 		return setFloat(&c.IconFillRatio, val)
 	case key == "scrollback_lines":
 		return setInt(&c.ScrollbackLines, val)
+	case key == "key_repeat_delay_ms":
+		return setInt(&c.KeyRepeatDelayMs, val)
+	case key == "key_repeat_interval_ms":
+		return setInt(&c.KeyRepeatIntervalMs, val)
 	case key == "padding_top":
 		return setInt(&c.PaddingTop, val)
 	case key == "padding_right":

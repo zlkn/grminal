@@ -40,6 +40,11 @@ window_decorated = false
 # Lines of scrollback history per pane.
 scrollback_lines = 10000
 
+# Key autorepeat: holding a key re-sends it after key_repeat_delay_ms, then
+# every key_repeat_interval_ms. Set the delay to 0 to disable autorepeat.
+key_repeat_delay_ms    = 500
+key_repeat_interval_ms = 30
+
 # Fraction of the cell height a Nerd Font icon is scaled to fill.
 icon_fill_ratio = 0.5
 
