@@ -134,19 +134,29 @@ and at `font_size 16` on a 2x display that trade currently loses.
 
 ## 6. Options, cheapest first
 
-1. **`font_size = 18`.** Puts both crossbars on the grid at scale 2. One config
-   line, no code. Verified visually and in the raster dump.
-2. **Gamma-corrected text blending.** Composite glyph coverage with a gamma
-   ramp instead of straight sRGB alpha. This is what FreeType/CoreText do and it
-   is the standard fix for washed-out dark-on-light antialiasing. Helps all
-   text, not only ligatures.
+1. ~~**`font_size = 18`.**~~ **Tried, did not help.** Puts the crossbars on the
+   grid at scale 2 by the raster metrics, but reads no crisper in the real
+   window.
+2. **Gamma-corrected text blending.** *Implemented — `text_gamma`, default 1.4.*
+   Applies `cov^(1/gamma)` to glyph coverage in a Kage shader
+   (`internal/ui/render/textshader.go`) before blending. Measured on `!=` at
+   scale 2: mean coverage over inked pixels **0.591 → 0.673**, share of faint
+   pixels (<0.5) **45.5% → 28.6%**.
+
+   What it does *not* do: the share of pixels in the mushy middle (0.15..0.85)
+   stays at **0.753**, unchanged. A monotonic curve slides the distribution up,
+   it does not empty a band around its centre. The three-row spread of a bar is
+   geometry — see §4 — and no tone curve moves ink between rows.
 3. **Teach `font_snap` about the vertical axis.** Score candidate sizes by stem
    alignment (fraction of ink pixels above ~0.9 coverage) as well as by advance
    integrality, and pick the best combined score. More faithful to the intent of
-   the knob than the current advance-only rule.
-4. **Real grid-fitting.** Not available: no Go rasterizer executes TT hinting.
-   Would require an autohinter or Cgo/FreeType, both against the project's
-   Pure-Go constraint.
+   the knob than the current advance-only rule. Cheap next step if §2 proves
+   insufficient.
+4. **Real grid-fitting.** The only thing that actually fixes §4's three-row
+   spread. Requires owning glyph rasterization: shape with go-text/typesetting,
+   rasterize outlines ourselves, snap horizontal edges to the pixel grid, cache
+   in our own atlas. Large, but pure Go — the alternative (Cgo/FreeType) is
+   against the project's constraint.
 
 Do **not** "fix" this by rendering at logical resolution the way darktile does.
 It only looks better because it is a 2x-magnified bitmap.
@@ -160,15 +170,20 @@ loop (pixel readback panics headless — see `CLAUDE.MD` §4). The pattern is th
 one already used by `internal/render/ligature_gpu_test.go`: run
 `ebiten.RunGame`, do the work inside `Draw`, return `ebiten.Termination`.
 
-Existing coverage of the neighbouring invariant:
-
 ```fish
-GPUTEST=1 go test ./internal/render -run LigatureRaster -v   # font_snap uniformity
+make gputest    # font_snap uniformity, cursor pixels, and the text_gamma trio
+make fontdump   # /tmp/govte_fontdump.png: a ligature line at gamma 1.0/1.2/1.4/1.8
 ```
+
+`TestTextGamma` (`internal/ui/render/gamma_gpu_test.go`) carries the three
+assertions the correction is held to: it is a no-op at exponent 1 (identity
+against the old DrawImage path, ±1/255), it is monotonic and moves the mean, and
+it reduces the faint-pixel share. It also logs the soft-pixel share precisely
+because that one does *not* move.
 
 To re-measure the vertical story, dump `g.Image` alpha from
 `text.AppendGlyphs(nil, "!=", face, nil)` across sizes 24..40 and count pixels
-above 0.9 coverage. There is currently **no test guarding vertical stem
+above 0.9 coverage. There is still **no test guarding vertical stem
 alignment** — §6.3 would be the place to add one.
 
 ---
@@ -179,4 +194,6 @@ alignment** — §6.3 would be the place to add one.
 - darktile renders at half resolution and gets pixel-doubled, which fakes
   crispness; go-vte renders natively at 2x and shows honest antialiasing.
 - Neither hints; go-vte's ligature crossbars land badly at 30px em specifically.
-- `font_size = 18` is the cheap fix; gamma-correct blending is the real one.
+- `font_size = 18` did not help. `text_gamma` (§6.2) is implemented and makes
+  strokes measurably denser, but it is a tone fix, not a geometry one. If blur
+  persists, the remaining lever is vertical grid-fitting (§6.4).
