@@ -17,9 +17,9 @@ import (
 )
 
 // Debug enables verbose config-loading logs (path, missing file, effective
-// values). Read/parse errors are always logged regardless. Defaults from the
-// GO_VTE_DEBUG environment variable.
-var Debug = os.Getenv("GO_VTE_DEBUG") != ""
+// values). Read/parse errors are always logged regardless. Set from the -debug
+// flag in main before Load runs.
+var Debug bool
 
 // debugf logs only when Debug is set.
 func debugf(format string, args ...any) {

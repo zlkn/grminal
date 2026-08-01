@@ -1,6 +1,6 @@
 GO ?= go
 
-.PHONY: test test-race update vttest vttest-update gputest fontdump bench cover build vet tidy
+.PHONY: test test-race update vttest vttest-update gputest fontdump bench cover build run-debug vet tidy
 
 # Level 1-3: unit, ANSI/integration and headless GPU tests.
 test:
@@ -46,6 +46,9 @@ cover:
 
 build:
 	$(GO) build -o bin/go-vte ./cmd/go-vte
+
+run-debug:
+	$(GO) run ./cmd/go-vte -debug
 
 vet:
 	$(GO) vet ./...
