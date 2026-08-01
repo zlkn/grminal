@@ -1,6 +1,6 @@
 GO ?= go
 
-.PHONY: test test-race update vttest vttest-update gputest bench cover build vet tidy
+.PHONY: test test-race update vttest vttest-update gputest fontdump bench cover build vet tidy
 
 # Level 1-3: unit, ANSI/integration and headless GPU tests.
 test:
@@ -29,6 +29,12 @@ vttest-update:
 # rest of the package's tests are unaffected and run here too.
 gputest:
 	GPUTEST=1 $(GO) test ./internal/ui/render -count=1 -v
+
+# Writes /tmp/govte_fontdump.png: one line of ligatures rendered at a range of
+# text_gamma values, stacked. Numbers cannot settle what reads as crisp — look at
+# it on the display that will show it, then set text_gamma in the config.
+fontdump:
+	FONTDUMP=1 $(GO) test ./internal/ui/render -run FontDump -count=1 -v
 
 # Allocation/throughput guards (zero-alloc ring, low-alloc parser).
 bench:

@@ -37,6 +37,12 @@ type Renderer struct {
 	iconFillRatio float64
 	scale         float64
 
+	// Coverage-gamma correction for text. textShader is nil when the correction
+	// is off (gamma 1) or failed to compile, in which case glyphs take the plain
+	// DrawImage path. See newTextShader.
+	textShader *ebiten.Shader
+	invGamma   float32
+
 	// Cursor presentation from the config. cursorShape/cursorBlink are the
 	// fallbacks used when the running app has not selected them via DECSCUSR.
 	cursorShape vte.CursorShape
@@ -94,6 +100,7 @@ func NewRenderer(cfg config.Config, scale float64) (*Renderer, error) {
 	// blends with premultiplied alpha, so the components have to be scaled too —
 	// setting A alone would draw an over-bright cursor.
 	cursor := premultiply(cfg.Cursor, cfg.CursorOpacity)
+	textShader, invGamma := newTextShader(cfg.TextGamma)
 
 	return &Renderer{
 		face:          face,
@@ -105,6 +112,8 @@ func NewRenderer(cfg config.Config, scale float64) (*Renderer, error) {
 		ascent:        m.HAscent,
 		palette:       cfg.Palette,
 		iconFillRatio: cfg.IconFillRatio,
+		textShader:    textShader,
+		invGamma:      invGamma,
 		cursorShape:   shapeFromStyle(cfg.CursorStyle),
 		cursorBlink:   cfg.CursorBlink,
 		scale:         scale,
@@ -244,11 +253,48 @@ func (r *Renderer) Draw(dst *ebiten.Image, snap vte.Snapshot, cur CursorState) {
 // cursor-word highlight) splits a row into differently-anchored runs.
 func (r *Renderer) drawRunText(dst *ebiten.Image, run Run, topY float64, fg color.RGBA) {
 	r.eachGlyph(run, topY, func(img *ebiten.Image, x, y float64) {
+		var geom ebiten.GeoM
+		geom.Translate(x, y)
+		r.blitGlyph(dst, img, geom, fg)
+	})
+}
+
+// blitGlyph paints one rasterized glyph image through geom, tinted with fg.
+//
+// It is the single place text reaches the screen — grid glyphs, tab labels and
+// icons all funnel through here — so the coverage-gamma correction applies
+// uniformly and cannot drift between them. With the correction off it is the
+// plain DrawImage call it replaced.
+func (r *Renderer) blitGlyph(dst, img *ebiten.Image, geom ebiten.GeoM, fg color.RGBA) {
+	if r.textShader == nil {
 		op := &ebiten.DrawImageOptions{}
-		op.GeoM.Translate(x, y)
+		op.GeoM = geom
 		op.ColorScale.ScaleWithColor(fg)
 		dst.DrawImage(img, op)
-	})
+		return
+	}
+	op := &ebiten.DrawRectShaderOptions{}
+	op.GeoM = geom
+	op.ColorScale.ScaleWithColor(fg)
+	op.Uniforms = map[string]any{"InvGamma": r.invGamma}
+	op.Images[0] = img
+	b := img.Bounds()
+	dst.DrawRectShader(b.Dx(), b.Dy(), r.textShader, op)
+}
+
+// drawString shapes s and blits its glyphs with their pen origin at (x, y),
+// which is the top-left of the text box (not the baseline) — the same origin
+// text.Draw uses. It exists so callers that only need a plain run of text do not
+// each re-derive glyph placement.
+func (r *Renderer) drawString(dst *ebiten.Image, s string, x, y float64, fg color.RGBA) {
+	for _, g := range text.AppendGlyphs(nil, s, r.face, nil) {
+		if g.Image == nil {
+			continue
+		}
+		var geom ebiten.GeoM
+		geom.Translate(x+g.X, y+g.Y)
+		r.blitGlyph(dst, g.Image, geom, fg)
+	}
 }
 
 // eachGlyph shapes run and calls fn for every glyph that has ink, with the pixel
@@ -299,12 +345,24 @@ func (r *Renderer) drawIcon(dst *ebiten.Image, ru rune, col int, topY float64, f
 	cx := r.padL + float64(col)*r.cellW + r.cellW/2
 	cy := topY + r.cellH/2
 
-	op := &text.DrawOptions{}
-	op.GeoM.Translate(-g.inkCX, -g.inkCY) // move ink centre to origin
-	op.GeoM.Scale(g.scale, g.scale)       // scale about it
-	op.GeoM.Translate(cx, cy)             // place at the cell centre
-	op.ColorScale.ScaleWithColor(fg)
-	text.Draw(dst, string(ru), r.face, op)
+	// The same transform text.Draw would have applied, built here so the glyphs
+	// go through blitGlyph and pick up the coverage gamma like all other text.
+	var outer ebiten.GeoM
+	outer.Translate(-g.inkCX, -g.inkCY) // move ink centre to origin
+	outer.Scale(g.scale, g.scale)       // scale about it
+	outer.Translate(cx, cy)             // place at the cell centre
+
+	for _, gl := range text.AppendGlyphs(nil, string(ru), r.face, nil) {
+		if gl.Image == nil {
+			continue
+		}
+		// text.Draw's own order: position the glyph at its pen offset first, then
+		// apply the caller's matrix. Reversing these would scale the offset too.
+		var geom ebiten.GeoM
+		geom.Translate(gl.X, gl.Y)
+		geom.Concat(outer)
+		r.blitGlyph(dst, gl.Image, geom, fg)
+	}
 }
 
 // iconMetrics returns (and caches) the scale and ink centre for an icon glyph.

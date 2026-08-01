@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -302,6 +303,44 @@ func TestLoadRejectsOutOfRangeOpacity(t *testing.T) {
 				val, c.CursorOpacity, Default().CursorOpacity)
 		}
 	}
+}
+
+// text_gamma is an exponent applied to every glyph pixel, so a typo is far more
+// likely than an intent: values outside [0.5,3] are reported and the default is
+// kept rather than rendering text that has washed out or smeared into blobs.
+func TestLoadTextGamma(t *testing.T) {
+	t.Run("accepted", func(t *testing.T) {
+		for _, val := range []string{"1", "1.4", "0.5", "3"} {
+			path := filepath.Join(t.TempDir(), "config.toml")
+			if err := os.WriteFile(path, []byte("text_gamma = "+val+"\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			c, err := Load(path)
+			if err != nil {
+				t.Errorf("text_gamma = %s: unexpected error %v", val, err)
+			}
+			if want, _ := strconv.ParseFloat(val, 64); c.TextGamma != want {
+				t.Errorf("text_gamma = %s: got %v, want %v", val, c.TextGamma, want)
+			}
+		}
+	})
+
+	t.Run("rejected", func(t *testing.T) {
+		for _, val := range []string{"0", "-1", "0.2", "10", "none"} {
+			path := filepath.Join(t.TempDir(), "config.toml")
+			if err := os.WriteFile(path, []byte("text_gamma = "+val+"\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			c, err := Load(path)
+			if err == nil {
+				t.Errorf("text_gamma = %s: expected an error, got nil", val)
+			}
+			if c.TextGamma != Default().TextGamma {
+				t.Errorf("text_gamma = %s: kept %v, want the default %v",
+					val, c.TextGamma, Default().TextGamma)
+			}
+		}
+	})
 }
 
 func TestPath(t *testing.T) {

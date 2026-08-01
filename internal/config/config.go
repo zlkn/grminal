@@ -39,6 +39,15 @@ type Config struct {
 	// exactly and accepts the softer, column-dependent rendering.
 	FontSnap bool
 
+	// TextGamma shapes how a glyph's antialiasing coverage maps to ink:
+	// cov' = cov^(1/TextGamma). The rasterizer hands back linear coverage, which
+	// blended straight into sRGB leaves partially-covered pixels reading as haze
+	// rather than as part of the stroke — worst on ligatures, whose thin bars
+	// straddle the pixel grid and land entirely on partial coverage. Above 1
+	// darkens those pixels (denser strokes); exactly 1 disables the correction
+	// and restores plain blending. See render.newTextShader.
+	TextGamma float64
+
 	Foreground  color.RGBA
 	Background  color.RGBA
 	Cursor      color.RGBA
@@ -110,6 +119,7 @@ func DefaultLight() Config {
 	return Config{
 		FontSize:    16,
 		FontSnap:    true,
+		TextGamma:   1.4,
 		Foreground:  rgb(0x1f, 0x23, 0x28),
 		Background:  rgb(0xf0, 0xee, 0xe6),
 		Cursor:      rgb(0x09, 0x69, 0xda),
@@ -191,8 +201,8 @@ func Load(path string) (Config, error) {
 	} else {
 		debugf("loaded %s (%d bytes)", path, len(data))
 	}
-	debugf("effective: font_size=%.0f snap=%t scrollback=%d icon_fill=%.2f cursor=%s/%.2f/blink=%t padding L%d/R%d/T%d/B%d",
-		cfg.FontSize, cfg.FontSnap, cfg.ScrollbackLines, cfg.IconFillRatio, cfg.CursorStyle,
+	debugf("effective: font_size=%.0f snap=%t gamma=%.2f scrollback=%d icon_fill=%.2f cursor=%s/%.2f/blink=%t padding L%d/R%d/T%d/B%d",
+		cfg.FontSize, cfg.FontSnap, cfg.TextGamma, cfg.ScrollbackLines, cfg.IconFillRatio, cfg.CursorStyle,
 		cfg.CursorOpacity, cfg.CursorBlink,
 		cfg.PaddingLeft, cfg.PaddingRight, cfg.PaddingTop, cfg.PaddingBottom)
 	return cfg, perr
@@ -240,6 +250,8 @@ func (c *Config) set(key, val string) error {
 		return setFloat(&c.FontSize, val)
 	case key == "font_snap":
 		return setBool(&c.FontSnap, val)
+	case key == "text_gamma":
+		return setGamma(&c.TextGamma, val)
 	case key == "icon_fill_ratio":
 		return setFloat(&c.IconFillRatio, val)
 	case key == "scrollback_lines":
@@ -374,6 +386,22 @@ func setOpacity(dst *float64, val string) error {
 	}
 	if f < 0 || f > 1 {
 		return fmt.Errorf("opacity %v out of range [0,1]", f)
+	}
+	*dst = f
+	return nil
+}
+
+// setGamma parses a text gamma. The range is bounded because the exponent is
+// applied to every glyph pixel: below 0.5 strokes wash out to nothing, above 3
+// they smear into solid blobs, and either way it is far likelier to be a typo
+// than an intent.
+func setGamma(dst *float64, val string) error {
+	f, err := strconv.ParseFloat(val, 64)
+	if err != nil {
+		return fmt.Errorf("invalid number %q", val)
+	}
+	if f < 0.5 || f > 3 {
+		return fmt.Errorf("gamma %v out of range [0.5,3]", f)
 	}
 	*dst = f
 	return nil

@@ -73,10 +73,7 @@ func (r *Renderer) DrawTabBar(dst *ebiten.Image, labels []string, active int) {
 		if lx < float64(x) {
 			lx = float64(x)
 		}
-		op := &text.DrawOptions{}
-		op.GeoM.Translate(lx, labelTop)
-		op.ColorScale.ScaleWithColor(fg)
-		text.Draw(dst, label, r.face, op)
+		r.drawString(dst, label, lx, labelTop, fg)
 
 		x += w
 	}

@@ -6,6 +6,20 @@
 # Font size in logical pixels (the font itself is embedded, not configurable).
 font_size = 14
 
+# How a glyph's antialiasing coverage maps to ink: cov^(1/text_gamma). The
+# rasterizer produces linear coverage, which blended straight into sRGB leaves
+# partially-covered pixels reading as haze around a stroke rather than as part of
+# it — worst on ligatures, whose thin bars straddle the pixel grid and land
+# entirely on partial coverage. Above 1 pulls those pixels toward ink (denser,
+# darker strokes); 1.0 disables the correction. Range [0.5, 3].
+#
+# The default suits dark text on a light background. On a dark theme light-on-dark
+# text already renders heavier than it should, so try 1.0 there.
+#
+# `make fontdump` renders a line of ligatures at several values to
+# /tmp/govte_fontdump.png — pick by eye, the metrics do not settle it.
+text_gamma = 1.4
+
 # Theme — colors are quoted "#rrggbb".
 foreground           = "#424242"
 background           = "#f0eee6"
