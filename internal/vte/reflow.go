@@ -32,7 +32,7 @@ func (g *Grid) reflow(cols, rows int) {
 		if y == g.curY {
 			ln.curOff = len(ln.cells) + g.curX
 		}
-		ln.cells = append(ln.cells, g.rowSlice(y)...)
+		ln.cells = append(ln.cells, g.RowSlice(y)...)
 	}
 
 	// 2. Rewrap each logical line to the new width, collecting output rows and
@@ -110,7 +110,7 @@ func (g *Grid) reflow(cols, rows int) {
 func (g *Grid) usedRows() int {
 	last := g.curY
 	for y := g.rows - 1; y >= 0; y-- {
-		row := g.rowSlice(y)
+		row := g.RowSlice(y)
 		blankLine := true
 		for _, c := range row {
 			if c != blank {

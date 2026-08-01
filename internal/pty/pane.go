@@ -1,7 +1,6 @@
-// Package pane is a single terminal instance: it owns a PTY and the VTE grid
-// the PTY's output is rendered into, and holds input focus. It knows nothing
-// about the GPU.
-package pane
+// Package pty manages single terminal instances: it owns an OS/fake pseudo-terminal
+// and the VTE grid into which PTY output is rendered.
+package pty
 
 import (
 	"errors"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/yzolkin/go-vte/internal/scrollback"
 	"github.com/yzolkin/go-vte/internal/vte"
+	"github.com/yzolkin/go-vte/internal/vte/parser"
 )
 
 // readBufSize is the chunk size for draining the PTY.
@@ -25,15 +25,11 @@ var bufPool = sync.Pool{
 }
 
 // Pane is one concrete terminal instance.
-//
-// The grid is shared between the PTY drain goroutine (which mutates it) and the
-// render loop (which reads it). All grid access is serialised by mu; readers
-// take an independent Snapshot rather than touching the live grid.
 type Pane struct {
 	pty      PTY
-	mu       sync.Mutex // guards grid mutation and snapshotting
+	mu       sync.Mutex // guards grid mutation, parser, and snapshotting
 	grid     *vte.Grid
-	parser   *vte.Parser
+	parser   *parser.Parser
 	scroll   *scrollback.Ring
 	onChange func()      // optional: called when PTY output mutates the grid
 	exited   atomic.Bool // set when Run returns (shell exited or PTY closed)
@@ -45,18 +41,21 @@ func NewPane(pty PTY, cols, rows, scrollbackLines int) *Pane {
 	g := vte.NewGrid(cols, rows)
 	ring := scrollback.NewRing(scrollbackLines, cols)
 	g.SetScrollHook(ring.Push)
-	parser := vte.NewParser(g)
-	parser.SetReply(pty) // device-query responses go back to the child process
-	return &Pane{pty: pty, grid: g, parser: parser, scroll: ring}
+	p := parser.NewParser(g)
+	p.SetReply(pty) // device-query responses go back to the child process
+	return &Pane{pty: pty, grid: g, parser: p, scroll: ring}
 }
 
 // Scrollback returns the pane's history ring.
 func (p *Pane) Scrollback() *scrollback.Ring { return p.scroll }
 
 // SetChangeHook registers a callback invoked (from the PTY drain goroutine)
-// whenever new output mutates the grid. It lets the renderer redraw on demand
-// instead of polling every frame. The hook must be safe to call concurrently.
-func (p *Pane) SetChangeHook(fn func()) { p.onChange = fn }
+// whenever new output mutates the grid. Safe to call concurrently.
+func (p *Pane) SetChangeHook(fn func()) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.onChange = fn
+}
 
 // Title returns the pane's current title (set via OSC), safe to call
 // concurrently with Run.
@@ -75,6 +74,22 @@ func (p *Pane) AppCursorKeys() bool {
 	return p.grid.AppCursorKeys()
 }
 
+// CursorVisible reports whether the app has left the cursor visible (DECTCEM).
+// Safe to call concurrently with Run.
+func (p *Pane) CursorVisible() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.grid.CursorVisible()
+}
+
+// CursorBlink returns the blink state the app asked for via DECSCUSR (Default
+// when it has not asked). Safe to call concurrently with Run.
+func (p *Pane) CursorBlink() vte.CursorBlink {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.grid.CursorBlink()
+}
+
 // EncodeMouse returns the PTY bytes for a pointer event under the grid's current
 // mouse-reporting mode, or nil if the event must not be reported. Safe to call
 // concurrently with Run.
@@ -84,8 +99,7 @@ func (p *Pane) EncodeMouse(ev vte.MouseEvent) []byte {
 	return p.grid.EncodeMouse(ev)
 }
 
-// Grid returns the pane's character grid. It is not safe to read concurrently
-// with Run; use Snapshot for that. Intended for single-threaded/test use.
+// Grid returns the pane's character grid. Intended for single-threaded/test use.
 func (p *Pane) Grid() *vte.Grid { return p.grid }
 
 // Snapshot returns an independent copy of the grid, safe to call concurrently
@@ -121,9 +135,7 @@ func (p *Pane) ScrollbackLen() int {
 }
 
 // SnapshotScrolled returns a snapshot of the view scrolled offset lines up into
-// scrollback history (0 = the live screen). On the alternate screen or a
-// non-positive offset it is identical to Snapshot. Safe to call concurrently
-// with Run.
+// scrollback history (0 = the live screen). Safe to call concurrently with Run.
 func (p *Pane) SnapshotScrolled(offset int) vte.Snapshot {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -133,8 +145,6 @@ func (p *Pane) SnapshotScrolled(offset int) vte.Snapshot {
 	if offset > p.scroll.Len() {
 		offset = p.scroll.Len()
 	}
-	// Copy the last offset history rows while holding the lock — Ring.At aliases
-	// internal storage that a concurrent Push would overwrite.
 	history := make([][]vte.Cell, offset)
 	base := p.scroll.Len() - offset
 	for i := 0; i < offset; i++ {
@@ -147,10 +157,9 @@ func (p *Pane) SnapshotScrolled(offset int) vte.Snapshot {
 }
 
 // Run drains the PTY into the grid until EOF (or a read error), feeding each
-// chunk through the parser. Blocking PTY reads happen outside the lock; only the
-// grid mutation is serialised, so a concurrent Snapshot is never starved.
+// chunk through the parser.
 func (p *Pane) Run() error {
-	defer p.exited.Store(true) // mark dead so the app can close the tab
+	defer p.exited.Store(true)
 	bufp := bufPool.Get().(*[]byte)
 	defer bufPool.Put(bufp)
 	buf := *bufp
@@ -159,11 +168,11 @@ func (p *Pane) Run() error {
 		n, err := p.pty.Read(buf)
 		if n > 0 {
 			p.mu.Lock()
-			// Parser.Write never errors and always consumes all input.
 			_, _ = p.parser.Write(buf[:n])
+			fn := p.onChange
 			p.mu.Unlock()
-			if p.onChange != nil {
-				p.onChange()
+			if fn != nil {
+				fn()
 			}
 		}
 		if err != nil {
@@ -176,7 +185,6 @@ func (p *Pane) Run() error {
 }
 
 // Exited reports whether Run has returned (the shell exited or the PTY closed).
-// Safe to call concurrently with Run.
 func (p *Pane) Exited() bool { return p.exited.Load() }
 
 // Write forwards keystrokes to the PTY.

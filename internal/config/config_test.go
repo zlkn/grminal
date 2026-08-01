@@ -108,6 +108,15 @@ func TestDefault(t *testing.T) {
 	if c.CursorStyle != "block" {
 		t.Errorf("CursorStyle = %q, want block", c.CursorStyle)
 	}
+	if !c.FontSnap {
+		t.Error("FontSnap = false, want true by default")
+	}
+	if c.CursorOpacity != 0.6 {
+		t.Errorf("CursorOpacity = %v, want 0.6", c.CursorOpacity)
+	}
+	if c.CursorBlink {
+		t.Error("CursorBlink = true, want false by default")
+	}
 	if c.PaddingTop != 0 || c.PaddingRight != 0 || c.PaddingBottom != 0 || c.PaddingLeft != 0 {
 		t.Errorf("padding = %d/%d/%d/%d, want all 0",
 			c.PaddingTop, c.PaddingRight, c.PaddingBottom, c.PaddingLeft)
@@ -135,6 +144,9 @@ background = "#101010"
 color1 = "#ff0000"
 scrollback_lines = 5000
 cursor_style = "beam"
+font_snap = false
+cursor_opacity = 0.35
+cursor_blink = true
 icon_fill_ratio = 0.9
 padding_left = 12
 padding_top = 8
@@ -165,6 +177,15 @@ window_decorated = false
 	}
 	if c.CursorStyle != "beam" {
 		t.Errorf("CursorStyle = %q, want beam", c.CursorStyle)
+	}
+	if c.FontSnap {
+		t.Error("FontSnap = true, want false from the file")
+	}
+	if c.CursorOpacity != 0.35 {
+		t.Errorf("CursorOpacity = %v, want 0.35", c.CursorOpacity)
+	}
+	if !c.CursorBlink {
+		t.Error("CursorBlink = false, want true")
 	}
 	if c.IconFillRatio != 0.9 {
 		t.Errorf("IconFillRatio = %v, want 0.9", c.IconFillRatio)
@@ -261,6 +282,25 @@ color99 = "#123456"
 	}
 	if c.Palette[2] != (color.RGBA{0x00, 0xff, 0x00, 0xff}) {
 		t.Errorf("Palette[2] = %v, want #00ff00 (valid line applied)", c.Palette[2])
+	}
+}
+
+// An opacity outside [0,1] is rejected rather than clamped, so "60" meaning 60%
+// is reported instead of silently drawing an opaque cursor over the glyph.
+func TestLoadRejectsOutOfRangeOpacity(t *testing.T) {
+	for _, val := range []string{"60", "-0.5", "1.5", "half"} {
+		path := filepath.Join(t.TempDir(), "config.toml")
+		if err := os.WriteFile(path, []byte("cursor_opacity = "+val+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		c, err := Load(path)
+		if err == nil {
+			t.Errorf("cursor_opacity = %s: expected an error, got nil", val)
+		}
+		if c.CursorOpacity != Default().CursorOpacity {
+			t.Errorf("cursor_opacity = %s: kept %v, want the default %v",
+				val, c.CursorOpacity, Default().CursorOpacity)
+		}
 	}
 }
 

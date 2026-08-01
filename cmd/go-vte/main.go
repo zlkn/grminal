@@ -4,7 +4,7 @@ package main
 import (
 	"log"
 
-	"github.com/yzolkin/go-vte/internal/app"
+	"github.com/yzolkin/go-vte/internal/ui/app"
 )
 
 func main() {

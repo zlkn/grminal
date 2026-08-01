@@ -1,18 +1,18 @@
-package vte
+package parser_test
 
 import (
 	"testing"
 
 	"github.com/yzolkin/go-vte/internal/testutil"
+	"github.com/yzolkin/go-vte/internal/vte"
+	"github.com/yzolkin/go-vte/internal/vte/parser"
 )
 
 // TestParserGolden snapshots the grid produced by a realistic mixed stream
-// (clear, cursor positioning, SGR, tabs, wrapping). The Dump captures layout;
-// colors/attrs are asserted separately in the unit tests. Regenerate with
-// `go test ./internal/vte -update` and review the diff.
+// (clear, cursor positioning, SGR, tabs, wrapping).
 func TestParserGolden(t *testing.T) {
-	g := NewGrid(24, 6)
-	p := NewParser(g)
+	g := vte.NewGrid(24, 6)
+	p := parser.NewParser(g)
 
 	stream := "" +
 		"\x1b[2J\x1b[H" + // clear screen, home

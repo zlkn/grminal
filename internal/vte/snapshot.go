@@ -8,6 +8,8 @@ type Snapshot struct {
 	Cells         []Cell // len == Cols*Rows, row-major copy
 	CurX, CurY    int
 	CursorVisible bool
+	CursorShape   CursorShape // DECSCUSR; Default means "use the config"
+	CursorBlink   CursorBlink // DECSCUSR; Default means "use the config"
 	Title         string
 }
 
@@ -23,6 +25,8 @@ func (g *Grid) Snapshot() Snapshot {
 		CurX:          g.curX,
 		CurY:          g.curY,
 		CursorVisible: !g.cursorHidden,
+		CursorShape:   g.cursorShape,
+		CursorBlink:   g.cursorBlink,
 		Title:         g.title,
 	}
 }
@@ -73,6 +77,8 @@ func ScrolledSnapshot(history [][]Cell, live Snapshot, offset int) Snapshot {
 		CurX:          live.CurX,
 		CurY:          live.CurY,
 		CursorVisible: false, // no cursor while viewing history
+		CursorShape:   live.CursorShape,
+		CursorBlink:   live.CursorBlink,
 		Title:         live.Title,
 	}
 }

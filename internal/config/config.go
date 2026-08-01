@@ -32,6 +32,13 @@ func debugf(format string, args ...any) {
 type Config struct {
 	FontSize float64
 
+	// FontSnap nudges the effective pixel size (FontSize × device scale) to the
+	// nearest one whose character advance is a whole number of pixels, so every
+	// column of the grid starts on a pixel boundary and text rasterizes uniformly.
+	// See render.snapToWholeAdvance for why that matters. Off honours FontSize
+	// exactly and accepts the softer, column-dependent rendering.
+	FontSnap bool
+
 	Foreground  color.RGBA
 	Background  color.RGBA
 	Cursor      color.RGBA
@@ -39,7 +46,13 @@ type Config struct {
 	SelectionBG color.RGBA
 	Palette     [16]color.RGBA
 
+	// Cursor presentation. CursorStyle is the shape used when the running app has
+	// not asked for one via DECSCUSR; CursorOpacity is the alpha the cursor is
+	// drawn with (0 = invisible, 1 = opaque, hiding the glyph beneath);
+	// CursorBlink is the default blink, likewise overridable by DECSCUSR.
 	CursorStyle     string // block | beam | underline
+	CursorOpacity   float64
+	CursorBlink     bool
 	ScrollbackLines int
 	IconFillRatio   float64
 
@@ -63,9 +76,7 @@ type Config struct {
 	Keys Keybindings
 }
 
-// Binding is a parsed key chord: a normalized key token plus modifier flags. The
-// key token is lowercased — a single character ("t", "]", "1") or a named key
-// ("tab"). The zero value (empty Key) matches nothing, disabling the action.
+// Binding is a parsed key chord: a normalized key token plus modifier flags.
 type Binding struct {
 	Key   string
 	Ctrl  bool
@@ -91,22 +102,28 @@ func DefaultKeys() Keybindings {
 	}
 }
 
-// Default returns the built-in configuration (the current light theme).
-func Default() Config {
+// DefaultLight returns the built-in high-contrast light theme configuration.
+// ANSI colors 0..15 are properly inverted and contrast-adjusted for light background (#f0eee6):
+// color0 (Black) & color8 (Bright Black) are dark charcoal/slate to ensure comments and dark text
+// have high contrast (>4.5:1 / >10:1 ratio).
+func DefaultLight() Config {
 	return Config{
 		FontSize:    16,
-		Foreground:  rgb(0x42, 0x42, 0x42),
+		FontSnap:    true,
+		Foreground:  rgb(0x1f, 0x23, 0x28),
 		Background:  rgb(0xf0, 0xee, 0xe6),
-		Cursor:      rgb(0x20, 0xbb, 0xfc),
+		Cursor:      rgb(0x09, 0x69, 0xda),
 		SelectionFG: rgb(0xf0, 0xee, 0xe6),
-		SelectionBG: rgb(0x42, 0x42, 0x42),
+		SelectionBG: rgb(0x24, 0x29, 0x2e),
 		Palette: [16]color.RGBA{
-			rgb(0xd1, 0xd1, 0xd1), rgb(0xb8, 0x1a, 0x6b), rgb(0x1e, 0x76, 0x3c), rgb(0x8d, 0x5b, 0x00),
-			rgb(0x01, 0x54, 0x93), rgb(0x75, 0x22, 0x8e), rgb(0x00, 0x74, 0x74), rgb(0x42, 0x42, 0x42),
-			rgb(0x57, 0x60, 0x6a), rgb(0xb8, 0x1a, 0x6b), rgb(0x1e, 0x76, 0x3c), rgb(0x8d, 0x5b, 0x00),
-			rgb(0x01, 0x54, 0x93), rgb(0x75, 0x22, 0x8e), rgb(0x00, 0x74, 0x74), rgb(0x08, 0x51, 0x57),
+			rgb(0x1f, 0x23, 0x28), rgb(0xcf, 0x22, 0x2e), rgb(0x11, 0x63, 0x29), rgb(0x8d, 0x5b, 0x00),
+			rgb(0x09, 0x69, 0xda), rgb(0x82, 0x50, 0xdf), rgb(0x1b, 0x7c, 0x83), rgb(0x6e, 0x77, 0x81),
+			rgb(0x57, 0x60, 0x6a), rgb(0xa4, 0x0e, 0x26), rgb(0x1a, 0x7f, 0x37), rgb(0x63, 0x4c, 0x00),
+			rgb(0x21, 0x8b, 0xff), rgb(0xa4, 0x75, 0xf9), rgb(0x31, 0x92, 0xaa), rgb(0x8c, 0x95, 0x9f),
 		},
 		CursorStyle:         "block",
+		CursorOpacity:       0.6,
+		CursorBlink:         false,
 		ScrollbackLines:     10000,
 		IconFillRatio:       0.85,
 		KeyRepeatDelayMs:    500,
@@ -114,6 +131,28 @@ func Default() Config {
 		WindowDecorated:     true,
 		Keys:                DefaultKeys(),
 	}
+}
+
+// DefaultDark returns the built-in dark theme configuration.
+func DefaultDark() Config {
+	cfg := DefaultLight()
+	cfg.Foreground = rgb(0xc9, 0xd1, 0xd9)
+	cfg.Background = rgb(0x0d, 0x11, 0x17)
+	cfg.Cursor = rgb(0x58, 0xa6, 0xff)
+	cfg.SelectionFG = rgb(0x0d, 0x11, 0x17)
+	cfg.SelectionBG = rgb(0x58, 0xa6, 0xff)
+	cfg.Palette = [16]color.RGBA{
+		rgb(0x48, 0x4f, 0x58), rgb(0xff, 0x7b, 0x72), rgb(0x3f, 0xb9, 0x50), rgb(0xd2, 0x99, 0x22),
+		rgb(0x58, 0xa6, 0xff), rgb(0xbc, 0x8c, 0xff), rgb(0x39, 0xc5, 0xcf), rgb(0xb1, 0xba, 0xc4),
+		rgb(0x6e, 0x76, 0x81), rgb(0xff, 0xa1, 0x98), rgb(0x56, 0xd3, 0x64), rgb(0xe3, 0xb3, 0x41),
+		rgb(0x79, 0xc0, 0xff), rgb(0xd2, 0xa8, 0xff), rgb(0x56, 0xd4, 0xdd), rgb(0xf0, 0xf6, 0xfc),
+	}
+	return cfg
+}
+
+// Default returns the built-in configuration (the default high-contrast light theme).
+func Default() Config {
+	return DefaultLight()
 }
 
 // Path returns the config file location: $XDG_CONFIG_HOME/go-vte/config.toml,
@@ -152,8 +191,9 @@ func Load(path string) (Config, error) {
 	} else {
 		debugf("loaded %s (%d bytes)", path, len(data))
 	}
-	debugf("effective: font_size=%.0f scrollback=%d icon_fill=%.2f cursor=%s padding L%d/R%d/T%d/B%d",
-		cfg.FontSize, cfg.ScrollbackLines, cfg.IconFillRatio, cfg.CursorStyle,
+	debugf("effective: font_size=%.0f snap=%t scrollback=%d icon_fill=%.2f cursor=%s/%.2f/blink=%t padding L%d/R%d/T%d/B%d",
+		cfg.FontSize, cfg.FontSnap, cfg.ScrollbackLines, cfg.IconFillRatio, cfg.CursorStyle,
+		cfg.CursorOpacity, cfg.CursorBlink,
 		cfg.PaddingLeft, cfg.PaddingRight, cfg.PaddingTop, cfg.PaddingBottom)
 	return cfg, perr
 }
@@ -185,8 +225,21 @@ func parse(cfg Config, content string) (Config, error) {
 // default survives) and returns an error.
 func (c *Config) set(key, val string) error {
 	switch {
+	case key == "theme":
+		switch strings.ToLower(val) {
+		case "light":
+			*c = DefaultLight()
+			return nil
+		case "dark":
+			*c = DefaultDark()
+			return nil
+		default:
+			return fmt.Errorf("invalid theme %q (expected \"light\" or \"dark\")", val)
+		}
 	case key == "font_size":
 		return setFloat(&c.FontSize, val)
+	case key == "font_snap":
+		return setBool(&c.FontSnap, val)
 	case key == "icon_fill_ratio":
 		return setFloat(&c.IconFillRatio, val)
 	case key == "scrollback_lines":
@@ -205,6 +258,10 @@ func (c *Config) set(key, val string) error {
 		return setInt(&c.PaddingLeft, val)
 	case key == "cursor_style":
 		return setCursorStyle(&c.CursorStyle, val)
+	case key == "cursor_opacity":
+		return setOpacity(&c.CursorOpacity, val)
+	case key == "cursor_blink":
+		return setBool(&c.CursorBlink, val)
 	case key == "window_decorated":
 		return setBool(&c.WindowDecorated, val)
 	case key == "key_new_tab":
@@ -281,9 +338,6 @@ func setBinding(dst *Binding, val string) error {
 	return nil
 }
 
-// parseBinding parses a chord like "ctrl+shift+tab" into a Binding. The last '+'
-// separated token is the key; the rest are modifiers (ctrl/control, shift,
-// alt/option). Tokens are case-insensitive.
 func parseBinding(s string) (Binding, error) {
 	var b Binding
 	parts := strings.Split(strings.ToLower(strings.TrimSpace(s)), "+")
@@ -313,6 +367,18 @@ func parseBinding(s string) (Binding, error) {
 	return b, nil
 }
 
+func setOpacity(dst *float64, val string) error {
+	f, err := strconv.ParseFloat(val, 64)
+	if err != nil {
+		return fmt.Errorf("invalid number %q", val)
+	}
+	if f < 0 || f > 1 {
+		return fmt.Errorf("opacity %v out of range [0,1]", f)
+	}
+	*dst = f
+	return nil
+}
+
 func setCursorStyle(dst *string, val string) error {
 	switch val {
 	case "block", "beam", "underline":
@@ -323,7 +389,6 @@ func setCursorStyle(dst *string, val string) error {
 	}
 }
 
-// parseHexColor parses "#rrggbb" (or "rrggbb") into an opaque RGBA.
 func parseHexColor(s string) (color.RGBA, error) {
 	s = strings.TrimPrefix(strings.TrimSpace(s), "#")
 	if len(s) != 6 {
@@ -336,8 +401,6 @@ func parseHexColor(s string) (color.RGBA, error) {
 	return color.RGBA{R: uint8(v >> 16), G: uint8(v >> 8), B: uint8(v), A: 0xff}, nil
 }
 
-// stripComment removes a trailing '#' comment that is not inside a quoted
-// string, so quoted hex colors ("#rrggbb") survive.
 func stripComment(line string) string {
 	inQuote := false
 	for i, r := range line {
@@ -353,7 +416,6 @@ func stripComment(line string) string {
 	return line
 }
 
-// unquote strips a single pair of surrounding double quotes.
 func unquote(s string) string {
 	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
 		return s[1 : len(s)-1]

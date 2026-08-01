@@ -1,4 +1,4 @@
-package pane
+package pty
 
 import "io"
 

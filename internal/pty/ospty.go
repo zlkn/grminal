@@ -1,18 +1,15 @@
 //go:build linux || darwin
 
-package pane
+package pty
 
 import (
-	"fmt"
 	"os"
 	"os/exec"
 
-	"github.com/creack/pty"
+	creackpty "github.com/creack/pty"
 )
 
 // osPTY is the production PTY: a real pseudo-terminal running a child process.
-// It satisfies the PTY seam, so panes are oblivious to whether they wrap this or
-// the in-memory fake used in tests.
 type osPTY struct {
 	f   *os.File
 	cmd *exec.Cmd
@@ -28,8 +25,7 @@ func StartShell(cols, rows int) (PTY, error) {
 	cmd := exec.Command(shell)
 	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
 
-	fmt.Fprintf(os.Stderr, "DEBUG StartShell cols=%d rows=%d\n", cols, rows)
-	f, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: uint16(rows), Cols: uint16(cols)})
+	f, err := creackpty.StartWithSize(cmd, &creackpty.Winsize{Rows: uint16(rows), Cols: uint16(cols)})
 	if err != nil {
 		return nil, err
 	}
@@ -40,8 +36,7 @@ func (p *osPTY) Read(b []byte) (int, error)  { return p.f.Read(b) }
 func (p *osPTY) Write(b []byte) (int, error) { return p.f.Write(b) }
 
 func (p *osPTY) Resize(rows, cols uint16) error {
-	fmt.Fprintf(os.Stderr, "DEBUG pty.Resize cols=%d rows=%d\n", cols, rows)
-	return pty.Setsize(p.f, &pty.Winsize{Rows: rows, Cols: cols})
+	return creackpty.Setsize(p.f, &creackpty.Winsize{Rows: rows, Cols: cols})
 }
 
 // Close terminates the child and releases the pseudo-terminal.

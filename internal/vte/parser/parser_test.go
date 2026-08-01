@@ -1,13 +1,16 @@
-package vte
+package parser_test
 
 import (
 	"bytes"
 	"testing"
+
+	"github.com/yzolkin/go-vte/internal/vte"
+	"github.com/yzolkin/go-vte/internal/vte/parser"
 )
 
 func TestPrimaryDeviceAttributes(t *testing.T) {
-	g := NewGrid(10, 3)
-	p := NewParser(g)
+	g := vte.NewGrid(10, 3)
+	p := parser.NewParser(g)
 	var reply bytes.Buffer
 	p.SetReply(&reply)
 
@@ -18,8 +21,8 @@ func TestPrimaryDeviceAttributes(t *testing.T) {
 }
 
 func TestSecondaryDeviceAttributes(t *testing.T) {
-	g := NewGrid(10, 3)
-	p := NewParser(g)
+	g := vte.NewGrid(10, 3)
+	p := parser.NewParser(g)
 	var reply bytes.Buffer
 	p.SetReply(&reply)
 
@@ -30,8 +33,8 @@ func TestSecondaryDeviceAttributes(t *testing.T) {
 }
 
 func TestDeviceStatusReport(t *testing.T) {
-	g := NewGrid(10, 3)
-	p := NewParser(g)
+	g := vte.NewGrid(10, 3)
+	p := parser.NewParser(g)
 	var reply bytes.Buffer
 	p.SetReply(&reply)
 
@@ -42,8 +45,8 @@ func TestDeviceStatusReport(t *testing.T) {
 }
 
 func TestCursorPositionReport(t *testing.T) {
-	g := NewGrid(10, 5)
-	p := NewParser(g)
+	g := vte.NewGrid(10, 5)
+	p := parser.NewParser(g)
 	var reply bytes.Buffer
 	p.SetReply(&reply)
 
@@ -54,7 +57,7 @@ func TestCursorPositionReport(t *testing.T) {
 }
 
 // row returns the runes of grid row y as a string.
-func row(g *Grid, y int) string {
+func row(g *vte.Grid, y int) string {
 	rs := make([]rune, g.Cols())
 	for x := 0; x < g.Cols(); x++ {
 		rs[x] = g.CellAt(x, y).Rune
@@ -63,14 +66,14 @@ func row(g *Grid, y int) string {
 }
 
 // feed runs data through a fresh parser over a cols×rows grid and returns it.
-func feed(cols, rows int, data string) *Grid {
-	g := NewGrid(cols, rows)
-	p := NewParser(g)
+func feed(cols, rows int, data string) *vte.Grid {
+	g := vte.NewGrid(cols, rows)
+	p := parser.NewParser(g)
 	p.Write([]byte(data))
 	return g
 }
 
-// --- printable text and C0 controls (migrated from the minimal writer) -------
+// --- printable text and C0 controls ------------------------------------------
 
 func TestPrintable(t *testing.T) {
 	g := feed(5, 2, "hi")
@@ -112,7 +115,6 @@ func TestUTF8(t *testing.T) {
 
 func TestBackspace(t *testing.T) {
 	g := feed(5, 1, "ab\bc")
-	// Backspace moves left; 'c' overwrites 'b'.
 	if row(g, 0) != "ac   " {
 		t.Errorf("row0 = %q, want %q", row(g, 0), "ac   ")
 	}
@@ -121,8 +123,8 @@ func TestBackspace(t *testing.T) {
 // --- state survives across Write calls (chunk boundary) ----------------------
 
 func TestSplitEscapeAcrossWrites(t *testing.T) {
-	g := NewGrid(10, 2)
-	p := NewParser(g)
+	g := vte.NewGrid(10, 2)
+	p := parser.NewParser(g)
 	p.Write([]byte("\x1b[2")) // CSI, partial param
 	p.Write([]byte(";3HX"))   // finish CUP then print
 	if got := g.CellAt(2, 1).Rune; got != 'X' {
@@ -147,9 +149,7 @@ func TestCUPDefaultsToOrigin(t *testing.T) {
 }
 
 func TestCursorMoves(t *testing.T) {
-	// Home, down 3, right 4, up 1, left 2, then mark.
 	g := feed(10, 6, "\x1b[H\x1b[3B\x1b[4C\x1b[1A\x1b[2DX")
-	// (0,0) -> down3 (0,3) -> right4 (4,3) -> up1 (4,2) -> left2 (2,2)
 	if got := g.CellAt(2, 2).Rune; got != 'X' {
 		t.Errorf("CellAt(2,2) = %q, want 'X'", got)
 	}
@@ -189,7 +189,7 @@ func TestEraseDisplay(t *testing.T) {
 
 func TestSGRBold(t *testing.T) {
 	g := feed(3, 1, "\x1b[1mX")
-	if a := g.CellAt(0, 0).Style.Attrs; a&AttrBold == 0 {
+	if a := g.CellAt(0, 0).Style.Attrs; a&vte.AttrBold == 0 {
 		t.Errorf("attrs = %b, want bold set", a)
 	}
 }
@@ -197,55 +197,17 @@ func TestSGRBold(t *testing.T) {
 func TestSGRIndexedColor(t *testing.T) {
 	g := feed(3, 1, "\x1b[31;42mX")
 	st := g.CellAt(0, 0).Style
-	if st.FG != (Color{Kind: ColorIndexed, Idx: 1}) {
+	if st.FG != (vte.Color{Kind: vte.ColorIndexed, Idx: 1}) {
 		t.Errorf("FG = %+v, want indexed 1 (red)", st.FG)
 	}
-	if st.BG != (Color{Kind: ColorIndexed, Idx: 2}) {
+	if st.BG != (vte.Color{Kind: vte.ColorIndexed, Idx: 2}) {
 		t.Errorf("BG = %+v, want indexed 2 (green)", st.BG)
 	}
 }
 
 func TestSGRReset(t *testing.T) {
 	g := feed(3, 1, "\x1b[1;31mX\x1b[0mY")
-	if (g.CellAt(1, 0).Style != Style{}) {
-		t.Errorf("second cell style = %+v, want default after reset", g.CellAt(1, 0).Style)
-	}
-}
-
-func TestSGR256(t *testing.T) {
-	g := feed(3, 1, "\x1b[38;5;200mX")
-	if fg := g.CellAt(0, 0).Style.FG; fg != (Color{Kind: ColorIndexed, Idx: 200}) {
-		t.Errorf("FG = %+v, want indexed 200", fg)
-	}
-}
-
-func TestSGRTrueColor(t *testing.T) {
-	g := feed(3, 1, "\x1b[38;2;10;20;30mX")
-	if fg := g.CellAt(0, 0).Style.FG; fg != (Color{Kind: ColorRGB, R: 10, G: 20, B: 30}) {
-		t.Errorf("FG = %+v, want rgb(10,20,30)", fg)
-	}
-}
-
-// --- sequences that must be swallowed, not printed ---------------------------
-
-func TestOSCSwallowed(t *testing.T) {
-	// OSC set-title, BEL-terminated, must not leak into the grid.
-	g := feed(5, 1, "\x1b]0;my title\x07hi")
-	if got := row(g, 0); got != "hi   " {
-		t.Errorf("row0 = %q, want %q (OSC leaked)", got, "hi   ")
-	}
-}
-
-func TestOSCStTerminated(t *testing.T) {
-	g := feed(5, 1, "\x1b]0;t\x1b\\hi")
-	if got := row(g, 0); got != "hi   " {
-		t.Errorf("row0 = %q, want %q (OSC ST leaked)", got, "hi   ")
-	}
-}
-
-func TestCharsetDesignationSwallowed(t *testing.T) {
-	g := feed(5, 1, "\x1b(Bhi")
-	if got := row(g, 0); got != "hi   " {
-		t.Errorf("row0 = %q, want %q (charset leaked)", got, "hi   ")
+	if (g.CellAt(1, 0).Style != vte.Style{}) {
+		t.Errorf("cell 1 style = %+v, want default", g.CellAt(1, 0).Style)
 	}
 }

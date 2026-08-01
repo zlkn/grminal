@@ -6,7 +6,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 
-	"github.com/yzolkin/go-vte/internal/pane"
+	"github.com/yzolkin/go-vte/internal/pty"
 	"github.com/yzolkin/go-vte/internal/vte"
 )
 
@@ -50,12 +50,14 @@ func (g *game) handleInput() {
 		g.scrollOff, g.scrollAccum = 0, 0
 		_, _ = p.Write(buf)
 		g.dirty.Store(true) // echo/response will arrive; ensure a redraw
+		g.resetBlink()      // keep the cursor solid while typing
 	default:
 		// No fresh press: re-emit the armed key's bytes if it is still held past
 		// the delay. Ebiten does not surface OS autorepeat, so we synthesize it.
 		if rep := g.repeat.repeatBytes(g.repeatDelay, g.repeatInterval); rep != nil {
 			_, _ = p.Write(rep)
 			g.dirty.Store(true)
+			g.resetBlink()
 		}
 	}
 
@@ -104,8 +106,6 @@ func (r *keyRepeat) repeatBytes(delay, interval int) []byte {
 }
 
 // shouldRepeat reports whether a key held for d ticks emits a repeat this tick.
-// The first repeat lands at delay ticks, then every interval ticks after. A
-// non-positive delay disables repeat; interval is clamped to at least one tick.
 func shouldRepeat(d, delay, interval int) bool {
 	if delay <= 0 || d < delay {
 		return false
@@ -143,9 +143,8 @@ func isModifierKey(k ebiten.Key) bool {
 }
 
 // handleMouse forwards pointer events (button press/release, drag, wheel) to the
-// pane's PTY, encoded per its mouse-reporting mode. When reporting is off the
-// pane returns nil and nothing is sent, so ordinary shells ignore the mouse.
-func (g *game) handleMouse(p *pane.Pane) {
+// pane's PTY, encoded per its mouse-reporting mode.
+func (g *game) handleMouse(p *pty.Pane) {
 	mx, my := ebiten.CursorPosition()
 	col, row, inGrid := g.r.CellAt(mx, my)
 	col = clampInt(col, 0, g.cols-1)
@@ -172,8 +171,6 @@ func (g *game) handleMouse(p *pane.Pane) {
 		{ebiten.MouseButtonRight, vte.MouseRight},
 	}
 	for _, bt := range buttons {
-		// A press only starts inside the grid (not on the tab bar); a release is
-		// always reported so the app sees the button go up wherever it lands.
 		if inGrid && inpututil.IsMouseButtonJustPressed(bt.mb) {
 			g.mouseBtn, g.mouseHeld = bt.vb, true
 			g.mouseCol, g.mouseRow = col, row
@@ -185,8 +182,6 @@ func (g *game) handleMouse(p *pane.Pane) {
 		}
 	}
 
-	// Motion: report only when the pointer changes cell (the pane gates by mode,
-	// so this is a no-op unless the app enabled drag/any-motion tracking).
 	if inGrid && (col != g.mouseCol || row != g.mouseRow) {
 		g.mouseCol, g.mouseRow = col, row
 		btn := vte.MouseNone
@@ -196,9 +191,6 @@ func (g *game) handleMouse(p *pane.Pane) {
 		send(vte.MouseEvent{Button: btn, Motion: true})
 	}
 
-	// Wheel: positive dy scrolls up. When the app owns the mouse, forward the
-	// event as a report; otherwise (plain shell, primary screen) scroll local
-	// scrollback history instead.
 	if _, dy := ebiten.Wheel(); dy != 0 && inGrid {
 		switch {
 		case p.MouseEnabled():
@@ -216,11 +208,8 @@ func (g *game) handleMouse(p *pane.Pane) {
 // wheelScrollLines is how many scrollback lines one wheel notch moves the view.
 const wheelScrollLines = 3
 
-// scrollHistory moves the scrollback view by the wheel delta dy (positive = up =
-// further into history), accumulating fractional trackpad deltas into whole
-// notches and clamping to the available history. It marks the frame dirty when
-// the offset actually changes.
-func (g *game) scrollHistory(p *pane.Pane, dy float64) {
+// scrollHistory moves the scrollback view by the wheel delta dy.
+func (g *game) scrollHistory(p *pty.Pane, dy float64) {
 	g.scrollAccum += dy
 	notches := int(g.scrollAccum)
 	if notches == 0 {
@@ -235,7 +224,6 @@ func (g *game) scrollHistory(p *pane.Pane, dy float64) {
 	}
 }
 
-// clampInt bounds v to [lo, hi].
 func clampInt(v, lo, hi int) int {
 	if v < lo {
 		return lo
@@ -246,9 +234,6 @@ func clampInt(v, lo, hi int) int {
 	return v
 }
 
-// keyName maps an Ebiten key to the normalized token used in keybindings
-// (lowercase letters, digits, brackets, and "tab"). Keys that cannot appear in a
-// binding return ok=false.
 func keyName(k ebiten.Key) (string, bool) {
 	switch {
 	case k >= ebiten.KeyA && k <= ebiten.KeyZ:
@@ -265,12 +250,8 @@ func keyName(k ebiten.Key) (string, bool) {
 	return "", false
 }
 
-// appendSpecialKeys appends escape sequences / control bytes for the non-
-// printable keys pressed this frame. When appCursor is set (DECCKM, e.g. under
-// htop), the cursor keys are encoded as SS3 (ESC O x) instead of CSI (ESC [ x).
+// appendSpecialKeys appends escape sequences / control bytes for non-printable keys.
 func appendSpecialKeys(b []byte, ctrl, appCursor bool) []byte {
-	// Cursor keys: the introducer switches between CSI and SS3; the final byte
-	// is the same in both forms.
 	prefix := "\x1b["
 	if appCursor {
 		prefix = "\x1bO"
@@ -312,12 +293,20 @@ func appendSpecialKeys(b []byte, ctrl, appCursor bool) []byte {
 		}
 	}
 
-	// Ctrl+A..Z -> 0x01..0x1a (Ctrl+letter control codes).
+	// Control character chords: Ctrl+A..Z -> 0x01..0x1a, plus brackets/punctuation.
 	if ctrl {
 		for k := ebiten.KeyA; k <= ebiten.KeyZ; k++ {
 			if inpututil.IsKeyJustPressed(k) {
 				b = append(b, byte(k-ebiten.KeyA)+1)
 			}
+		}
+		switch {
+		case inpututil.IsKeyJustPressed(ebiten.KeyBracketLeft):
+			b = append(b, 0x1b) // ESC
+		case inpututil.IsKeyJustPressed(ebiten.KeyBackslash):
+			b = append(b, 0x1c) // FS / SIGQUIT
+		case inpututil.IsKeyJustPressed(ebiten.KeyBracketRight):
+			b = append(b, 0x1d) // GS
 		}
 	}
 	return b

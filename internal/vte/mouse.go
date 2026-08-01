@@ -2,15 +2,15 @@ package vte
 
 import "strconv"
 
-// mouseMode is the active mouse-reporting level, set by DEC private modes
+// MouseMode is the active mouse-reporting level, set by DEC private modes
 // ?1000/?1002/?1003. The SGR extended encoding (?1006) is tracked separately.
-type mouseMode uint8
+type MouseMode uint8
 
 const (
-	mouseOff    mouseMode = iota // no reporting
-	mouseX11                     // ?1000: button press and release
-	mouseButton                  // ?1002: + motion while a button is held (drag)
-	mouseAny                     // ?1003: + all motion
+	MouseOff         MouseMode = iota // no reporting
+	MouseX11                          // ?1000: button press and release
+	MouseButtonMode                   // ?1002: + motion while a button is held (drag)
+	MouseAny                          // ?1003: + all motion
 )
 
 // MouseButton identifies the button (or wheel direction) of a MouseEvent. The
@@ -37,32 +37,35 @@ type MouseEvent struct {
 	Shift, Alt, Ctrl bool
 }
 
-// setMouseMode enables reporting level m, or disables reporting when on is false
+// SetMouseMode enables reporting level m, or disables reporting when on is false
 // and m is the level currently active.
-func (g *Grid) setMouseMode(m mouseMode, on bool) {
+func (g *Grid) SetMouseMode(m MouseMode, on bool) {
 	if on {
 		g.mouseMode = m
 	} else if g.mouseMode == m {
-		g.mouseMode = mouseOff
+		g.mouseMode = MouseOff
 	}
 }
+
+// SetMouseSGR sets the SGR extended mouse encoding mode (?1006).
+func (g *Grid) SetMouseSGR(on bool) { g.mouseSGR = on }
 
 // MouseEnabled reports whether the app has turned on any mouse-reporting mode,
 // i.e. it owns the wheel. The input layer reads this (via the pane) to decide
 // whether the wheel scrolls local scrollback or is forwarded to the child.
-func (g *Grid) MouseEnabled() bool { return g.mouseMode != mouseOff }
+func (g *Grid) MouseEnabled() bool { return g.mouseMode != MouseOff }
 
 // EncodeMouse returns the bytes to send to the PTY for ev under the grid's
 // current mouse mode, or nil when the event must not be reported (reporting
 // off, or a motion event the active mode does not track).
 func (g *Grid) EncodeMouse(ev MouseEvent) []byte {
-	if g.mouseMode == mouseOff {
+	if g.mouseMode == MouseOff {
 		return nil
 	}
 	if ev.Motion {
 		switch g.mouseMode {
-		case mouseAny: // reports all motion
-		case mouseButton:
+		case MouseAny: // reports all motion
+		case MouseButtonMode:
 			if ev.Button == MouseNone {
 				return nil // ?1002 reports motion only while a button is held
 			}
